@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AimLab</title>
+  <link rel="stylesheet" href="style.css"/>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&family=Exo+2:wght@400;700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════
+     AUTH SCREEN
+══════════════════════════════════════════ -->
+<div id="auth-screen" class="screen active">
+  <div class="scanlines"></div>
+  <div class="auth-container">
+    <div class="logo-wrap">
+      <div class="logo-sub">PRECISION TRAINING SYSTEM</div>
+      <h1 class="logo">AIMLAB</h1>
+      <div class="logo-line"></div>
+    </div>
+    <div class="auth-tabs">
+      <button class="auth-tab active" onclick="switchTab('login')">LOGIN</button>
+      <button class="auth-tab" onclick="switchTab('register')">REGISTER</button>
+    </div>
+    <div id="tab-login" class="auth-form">
+      <input type="email" id="login-email" placeholder="Email" autocomplete="email"/>
+      <input type="password" id="login-password" placeholder="Password" autocomplete="current-password"/>
+      <div id="login-error" class="form-error"></div>
+      <button class="btn-primary" onclick="login()"><span>LOGIN</span><div class="btn-glow"></div></button>
+    </div>
+    <div id="tab-register" class="auth-form" style="display:none">
+      <input type="text" id="reg-username" placeholder="Username (shown on leaderboard)" maxlength="16" autocomplete="off"/>
+      <input type="email" id="reg-email" placeholder="Email" autocomplete="email"/>
+      <input type="password" id="reg-password" placeholder="Password (min 6 chars)" autocomplete="new-password"/>
+      <div id="register-error" class="form-error"></div>
+      <button class="btn-primary" onclick="register()"><span>CREATE ACCOUNT</span><div class="btn-glow"></div></button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     MENU SCREEN
+══════════════════════════════════════════ -->
+<div id="menu-screen" class="screen">
+  <div class="scanlines"></div>
+  <div class="menu-container">
+
+    <div class="logo-wrap">
+      <div class="logo-sub">PRECISION TRAINING SYSTEM</div>
+      <h1 class="logo">AIMLAB</h1>
+      <div class="logo-line"></div>
+    </div>
+
+    <!-- Player badge -->
+    <div id="player-badge" class="player-badge" onclick="showProfile()" title="View Profile">
+      <div id="badge-rank-icon" class="badge-rank-icon">—</div>
+      <div class="badge-info">
+        <div class="badge-top-row">
+          <div id="badge-username" class="badge-username">—</div>
+          <div id="badge-global-rank" class="badge-global-rank">—</div>
+        </div>
+        <div id="badge-rank-name" class="badge-rank-name">Unranked</div>
+        <div class="rank-bar-wrap">
+          <div class="rank-bar-track">
+            <div class="rank-bar-fill" id="badge-rank-fill" style="width:0%"></div>
+          </div>
+          <div class="rank-bar-label" id="badge-rank-next">— to next rank</div>
+        </div>
+      </div>
+      <div class="badge-right">
+        <div id="badge-best" class="badge-best">Best: 0</div>
+        <div class="badge-hint">VIEW PROFILE →</div>
+      </div>
+    </div>
+
+    <!-- Mode select -->
+    <div class="mode-select">
+      <div class="mode-label">SELECT MODE</div>
+      <div class="mode-buttons">
+        <button class="mode-btn active" onclick="selectMode('static')" id="mode-static">
+          <span class="mode-icon">⊕</span>
+          <span class="mode-name">STATIC</span>
+          <span class="mode-desc">Classic clicking</span>
+        </button>
+        <button class="mode-btn" onclick="selectMode('flick')" id="mode-flick">
+          <span class="mode-icon">⚡</span>
+          <span class="mode-name">FLICK</span>
+          <span class="mode-desc">React fast</span>
+        </button>
+        <button class="mode-btn" onclick="selectMode('tracking')" id="mode-tracking">
+          <span class="mode-icon">◎</span>
+          <span class="mode-name">TRACKING</span>
+          <span class="mode-desc">Moving targets</span>
+        </button>
+        <button class="mode-btn" onclick="selectMode('switching')" id="mode-switching">
+          <span class="mode-icon">⁂</span>
+          <span class="mode-name">SWITCHING</span>
+          <span class="mode-desc">Multi-target</span>
+        </button>
+        <button class="mode-btn" onclick="selectMode('reaction')" id="mode-reaction">
+          <span class="mode-icon">◈</span>
+          <span class="mode-name">REACTION</span>
+          <span class="mode-desc">Pure speed</span>
+        </button>
+        <button class="mode-btn" onclick="selectMode('trace')" id="mode-trace">
+          <span class="mode-icon">〰</span>
+          <span class="mode-name">TRACE</span>
+          <span class="mode-desc">Follow &amp; track</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- FIX: Settings panel — body is now fully populated, HTML structure is correct -->
+    <div class="settings-panel">
+      <div class="settings-title" onclick="toggleSettings()">⚙ SETTINGS <span id="settings-arrow">▼</span></div>
+      <div id="settings-body" class="settings-body" style="display:none">
+
+        <!-- Target size -->
+        <div class="setting-row">
+          <label>Target Size <span id="size-val">60</span>px</label>
+          <input type="range" min="20" max="100" value="60" oninput="updateSetting('size', this.value)"/>
+        </div>
+
+        <!-- Target speed -->
+        <div class="setting-row">
+          <label>Target Speed <span id="speed-val">5</span></label>
+          <input type="range" min="1" max="10" value="5" oninput="updateSetting('speed', this.value)"/>
+        </div>
+
+        <!-- Spawn rate -->
+        <div class="setting-row">
+          <label>Spawn Rate <span id="spawn-val">800</span>ms</label>
+          <input type="range" min="300" max="1500" value="800" step="100" oninput="updateSetting('spawn', this.value)"/>
+        </div>
+
+        <!-- Sound toggle -->
+        <div class="setting-row">
+          <label>Sound Effects</label>
+          <button class="toggle-btn" id="sound-toggle" onclick="toggleSound()">ON</button>
+        </div>
+
+        <!-- Crosshair picker -->
+        <div class="setting-row">
+          <label>Crosshair Style</label>
+          <div class="xhair-row">
+            <button class="xhair-btn active" data-xhair="classic" onclick="setCrosshair('classic')">Classic</button>
+            <button class="xhair-btn" data-xhair="dot"     onclick="setCrosshair('dot')">Dot</button>
+            <button class="xhair-btn" data-xhair="circle"  onclick="setCrosshair('circle')">Circle</button>
+            <button class="xhair-btn" data-xhair="gap"     onclick="setCrosshair('gap')">Gap</button>
+            <button class="xhair-btn" data-xhair="cross"   onclick="setCrosshair('cross')">Cross</button>
+            <button class="xhair-btn" data-xhair="t"       onclick="setCrosshair('t')">T-Shape</button>
+          </div>
+        </div>
+
+        <!-- Trace difficulty -->
+        <div class="setting-row">
+          <label>Trace Difficulty</label>
+          <div class="diff-row">
+            <button class="diff-btn" data-diff="easy"   onclick="setDifficulty('easy')">Easy</button>
+            <button class="diff-btn active" data-diff="medium" onclick="setDifficulty('medium')">Medium</button>
+            <button class="diff-btn" data-diff="hard"   onclick="setDifficulty('hard')">Hard</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+    <!-- END settings-panel -->
+
+    <button class="btn-primary" onclick="startGame()"><span>START TRAINING</span><div class="btn-glow"></div></button>
+    <div class="menu-bottom">
+      <button class="btn-ghost" onclick="showLeaderboard()">🏆 LEADERBOARD</button>
+      <button class="btn-ghost" onclick="showProfile()">👤 PROFILE</button>
+      <button class="btn-ghost" onclick="logout()">LOGOUT</button>
+    </div>
+
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PROFILE SCREEN
+══════════════════════════════════════════ -->
+<div id="profile-screen" class="screen">
+  <div class="scanlines"></div>
+  <div class="profile-container">
+
+    <div class="profile-header">
+      <div id="prof-rank-icon" class="prof-rank-icon">—</div>
+      <div class="prof-header-info">
+        <div id="prof-username" class="prof-username">—</div>
+        <div id="prof-rank-name" class="prof-rank-name">UNRANKED</div>
+        <div id="prof-global" class="prof-global">GLOBAL RANK —</div>
+      </div>
+    </div>
+
+    <div class="prof-progress-block">
+      <div class="prof-progress-top">
+        <span id="prof-cur-rank">IRON</span>
+        <span id="prof-progress-label">0 / 2,000</span>
+        <span id="prof-next-rank">BRONZE</span>
+      </div>
+      <div class="prof-progress-track">
+        <div class="prof-progress-fill" id="prof-progress-fill" style="width:0%"></div>
+      </div>
+      <div id="prof-progress-sub" class="prof-progress-sub">2,000 points to next rank</div>
+    </div>
+
+    <div class="prof-stats-row">
+      <div class="prof-stat">
+        <div class="prof-stat-val" id="prof-games">0</div>
+        <div class="prof-stat-lbl">GAMES</div>
+      </div>
+      <div class="prof-stat">
+        <div class="prof-stat-val" id="prof-total-hits">0</div>
+        <div class="prof-stat-lbl">TOTAL HITS</div>
+      </div>
+      <div class="prof-stat">
+        <div class="prof-stat-val" id="prof-best">0</div>
+        <div class="prof-stat-lbl">BEST SCORE</div>
+      </div>
+    </div>
+
+    <!-- FIX: only ranked modes here — trace is training-only, no DOM id needed -->
+    <div class="prof-mode-bests">
+      <div class="prof-section-title">BEST SCORES BY MODE</div>
+      <div class="prof-mode-grid">
+        <div class="prof-mode-row">
+          <span class="pmr-icon">⊕</span>
+          <span class="pmr-name">STATIC</span>
+          <span class="pmr-score" id="prof-best-static">0</span>
+          <span class="pmr-rank" id="prof-rank-static">—</span>
+        </div>
+        <div class="prof-mode-row">
+          <span class="pmr-icon">⚡</span>
+          <span class="pmr-name">FLICK</span>
+          <span class="pmr-score" id="prof-best-flick">0</span>
+          <span class="pmr-rank" id="prof-rank-flick">—</span>
+        </div>
+        <div class="prof-mode-row">
+          <span class="pmr-icon">◎</span>
+          <span class="pmr-name">TRACKING</span>
+          <span class="pmr-score" id="prof-best-tracking">0</span>
+          <span class="pmr-rank" id="prof-rank-tracking">—</span>
+        </div>
+        <div class="prof-mode-row">
+          <span class="pmr-icon">⁂</span>
+          <span class="pmr-name">SWITCHING</span>
+          <span class="pmr-score" id="prof-best-switching">0</span>
+          <span class="pmr-rank" id="prof-rank-switching">—</span>
+        </div>
+        <div class="prof-mode-row">
+          <span class="pmr-icon">◈</span>
+          <span class="pmr-name">REACTION</span>
+          <span class="pmr-score" id="prof-best-reaction">0</span>
+          <span class="pmr-rank" id="prof-rank-reaction">—</span>
+        </div>
+        <!-- Trace shown as training-only, no rank -->
+        <div class="prof-mode-row">
+          <span class="pmr-icon">〰</span>
+          <span class="pmr-name">TRACE</span>
+          <span class="pmr-score" id="prof-best-trace" style="color:var(--muted)">—</span>
+          <span class="pmr-rank" style="color:var(--muted);font-size:10px;">TRAINING ONLY</span>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn-ghost" onclick="showScreen('menu-screen')" style="margin-top:8px">← BACK TO MENU</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     LEADERBOARD SCREEN
+══════════════════════════════════════════ -->
+<div id="leaderboard-screen" class="screen">
+  <div class="scanlines"></div>
+  <div class="lb-container">
+    <h2 class="lb-title">GLOBAL LEADERBOARD</h2>
+    <!-- FIX: only ranked modes as tabs — trace excluded -->
+    <div class="lb-mode-tabs">
+      <button class="lb-tab active" onclick="switchLbMode('static')">STATIC</button>
+      <button class="lb-tab" onclick="switchLbMode('flick')">FLICK</button>
+      <button class="lb-tab" onclick="switchLbMode('tracking')">TRACKING</button>
+      <button class="lb-tab" onclick="switchLbMode('switching')">SWITCHING</button>
+      <button class="lb-tab" onclick="switchLbMode('reaction')">REACTION</button>
+    </div>
+    <div id="lb-your-rank" class="lb-your-rank" style="display:none">
+      YOUR RANK IN THIS MODE: <span id="lb-your-rank-num">#—</span>
+    </div>
+    <div id="lb-list"><div class="lb-loading">Loading...</div></div>
+    <button class="btn-ghost" onclick="showScreen('menu-screen')">← BACK</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     GAME SCREEN
+══════════════════════════════════════════ -->
+<div id="game-screen" class="screen">
+  <div id="hud">
+    <div class="hud-item">
+      <span class="hud-label">SCORE</span>
+      <span class="hud-value" id="score-display">0</span>
+    </div>
+    <div class="hud-item hud-center">
+      <span class="hud-value timer-val" id="timer-display">30</span>
+      <span class="hud-label" id="mode-label-hud">STATIC</span>
+    </div>
+    <div class="hud-item">
+      <span class="hud-label">ACCURACY</span>
+      <span class="hud-value" id="acc-display">—</span>
+    </div>
+  </div>
+  <div id="reaction-overlay" style="display:none">
+    <div id="reaction-msg" class="reaction-msg">WAIT FOR GREEN...</div>
+    <div id="reaction-time" class="reaction-time"></div>
+    <div id="reaction-scores" class="reaction-scores"></div>
+  </div>
+  <!-- No onclick here — mousedown listener added in DOMContentLoaded -->
+  <div id="game-area">
+    <div id="miss-flash"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     RESULTS SCREEN
+══════════════════════════════════════════ -->
+<div id="results-screen" class="screen">
+  <div class="scanlines"></div>
+  <div class="results-container">
+
+    <div class="results-header">
+      <div class="result-rank-badge">
+        <div id="result-rank-icon" class="result-rank-icon">—</div>
+        <div id="result-rank-name" class="result-rank-name">—</div>
+      </div>
+      <h2>ROUND COMPLETE</h2>
+      <p id="results-name-display"></p>
+    </div>
+
+    <div class="result-grid">
+      <div class="result-card"><span class="rc-label">SCORE</span><span class="rc-value" id="final-score">0</span></div>
+      <div class="result-card"><span class="rc-label">ACCURACY</span><span class="rc-value" id="final-accuracy">0%</span></div>
+      <div class="result-card"><span class="rc-label">HITS</span><span class="rc-value" id="final-hits">0</span></div>
+      <div class="result-card"><span class="rc-label">AVG REACT</span><span class="rc-value" id="final-react">—</span></div>
+    </div>
+
+    <div id="result-mode-rank" class="result-mode-rank" style="display:none">
+      <span id="result-mode-rank-text"></span>
+    </div>
+
+    <div id="new-best-banner" class="new-best-banner" style="display:none">🏆 NEW PERSONAL BEST!</div>
+
+    <div class="result-rank-progress" id="result-rank-progress" style="display:none">
+      <div class="rrp-labels">
+        <span id="rrp-cur">—</span>
+        <span id="rrp-pct">0%</span>
+        <span id="rrp-next">—</span>
+      </div>
+      <div class="rrp-track"><div class="rrp-fill" id="rrp-fill"></div></div>
+      <div id="rrp-sub" class="rrp-sub"></div>
+    </div>
+
+    <div id="submit-status" class="submit-status"></div>
+    <div class="result-buttons">
+      <button class="btn-primary" onclick="startGame()"><span>PLAY AGAIN</span><div class="btn-glow"></div></button>
+      <button class="btn-ghost" onclick="showLeaderboard()">🏆 LEADERBOARD</button>
+      <button class="btn-ghost" onclick="showScreen('menu-screen')">MENU</button>
+    </div>
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
