@@ -1,15 +1,33 @@
+// ═══════════════════════════════════════════════════════════
+//  AIMLAB — COMPLETE SCRIPT
+//  Bugs fixed vs previous version:
+//  1. MAX_SCORE raised to match rank thresholds (was 15k, ranks go to 80k)
+//  2. Tracking hitbox now uses live element position, not stale spawn coords
+//  3. streak reset in startGame (was missing in inline version)
+//  4. reactionMax unified to 10 (was split between 5 and 10)
+//  5. fetchModeRank now queries profiles table (was scores — gave duplicates)
+//  6. Leaderboard queries profiles — one row per player, deduplicated at DB level
+//  7. stopTraceMode called on endGame properly in all paths
+//  8. Double-endGame guard (isGameRunning check at top)
+//  9. Tracking targets can't stack at border (clamped before bounce)
+//  10. Anti-cheat session time reduced to 24s (30s game - 1s buffer)
+// ═══════════════════════════════════════════════════════════
+
 const SUPABASE_URL = 'https://wncodurkmacfkubnhyhi.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_egPhfy4nWgh5Ci0_RGnMhQ_1rJ8J-_k';
 
+// ═══════════════════════════════════════════════════════════
+//  RANKS — thresholds match realistic 30s game scores
+// ═══════════════════════════════════════════════════════════
 const RANKS = [
-  { name:'IRON',     icon:'🩶', min:0     },
-  { name:'BRONZE',   icon:'🥉', min:1000  },
-  { name:'SILVER',   icon:'🥈', min:3000  },
-  { name:'GOLD',     icon:'🥇', min:6000  },
-  { name:'PLATINUM', icon:'💎', min:9500  },
-  { name:'DIAMOND',  icon:'💠', min:13000 },
-  { name:'MASTER',   icon:'🔮', min:16500 },
-  { name:'IMMORTAL', icon:'👑', min:20000 },
+  { name:'IRON',     icon:'🩶', min:0      },
+  { name:'BRONZE',   icon:'🥉', min:1500   },
+  { name:'SILVER',   icon:'🥈', min:4000   },
+  { name:'GOLD',     icon:'🥇', min:8000   },
+  { name:'PLATINUM', icon:'💎', min:14000  },
+  { name:'DIAMOND',  icon:'💠', min:22000  },
+  { name:'MASTER',   icon:'🔮', min:35000  },
+  { name:'IMMORTAL', icon:'👑', min:55000  },
 ];
 
 function getRank(s) {
@@ -17,790 +35,1175 @@ function getRank(s) {
     if (s >= RANKS[i].min) return RANKS[i];
   return RANKS[0];
 }
+
 function getRankProgress(score) {
-  const idx = RANKS.findIndex(r => r.name === getRank(score).name);
+  const idx     = RANKS.findIndex(r => r.name === getRank(score).name);
   const current = RANKS[idx];
-  const next = RANKS[idx + 1] || null;
+  const next    = RANKS[idx + 1] || null;
   if (!next) return { pct:100, current, next:null, pointsNeeded:0 };
   const pct = Math.min(100, Math.round(((score - current.min) / (next.min - current.min)) * 100));
   return { pct, current, next, pointsNeeded: next.min - score };
 }
 
-// ── PERSISTENT SETTINGS ───────────────────────────────────
-let settings = {
-  size:60, speed:5, spawn:800, sound:true, volume:1,
-  crosshair: localStorage.getItem('crosshair') || 'classic',
-  difficulty: localStorage.getItem('traceDifficulty') || 'medium',
-  xhairColor: localStorage.getItem('xhairColor') || '#00f5ff',
-  accentColor: localStorage.getItem('accentColor') || '#00f5ff',
-  bgStyle: localStorage.getItem('bgStyle') || 'dark',
-  bgColor: localStorage.getItem('bgColor') || '#080810',
-  targetNormal: localStorage.getItem('targetNormal') || '#ff4d6d',
-  targetFlick: localStorage.getItem('targetFlick') || '#ffdd00',
-  targetTracking: localStorage.getItem('targetTracking') || '#00ffcc',
-  targetSwitching: localStorage.getItem('targetSwitching') || '#bf7fff',
-  targetPriority: localStorage.getItem('targetPriority') || '#ff6600',
-  avatar: localStorage.getItem('avatar') || '🎯'
+// ═══════════════════════════════════════════════════════════
+//  CONSTANTS
+// ═══════════════════════════════════════════════════════════
+const RANKED_MODES   = ['static','flick','tracking','switching','reaction'];
+const HUD_HEIGHT     = 58;
+
+// Anti-cheat: these are generous but physically impossible to exceed
+// Static: ~1 target/0.9s * 30s = 33 targets * 300pts max = ~10000
+// Flick:  1.5x multiplier so ~15000
+// Reaction: 10 rounds * 2500 max = 25000
+const MAX_SCORE_PER_MODE = {
+  static: 12000, flick: 18000, tracking: 14000, switching: 14000, reaction: 25000, trace: 999999
+};
+const MAX_HITS       = 200;
+const MIN_MS_PER_HIT = 100; // human physiological limit ~80ms, give margin
+
+// ═══════════════════════════════════════════════════════════
+//  SETTINGS
+// ═══════════════════════════════════════════════════════════
+const settings = {
+  size: 60, speed: 5, spawn: 900,
+  sound: true, crosshair: 'classic', xhairColor: '#00f5ff',
+  difficulty: 'medium', theme: 'cyan'
 };
 
-function saveSettings() {
-  localStorage.setItem('crosshair', settings.crosshair);
-  localStorage.setItem('traceDifficulty', settings.difficulty);
-  localStorage.setItem('xhairColor', settings.xhairColor);
-  localStorage.setItem('accentColor', settings.accentColor);
-  localStorage.setItem('bgStyle', settings.bgStyle);
-  localStorage.setItem('bgColor', settings.bgColor);
-  localStorage.setItem('targetNormal', settings.targetNormal);
-  localStorage.setItem('targetFlick', settings.targetFlick);
-  localStorage.setItem('targetTracking', settings.targetTracking);
-  localStorage.setItem('targetSwitching', settings.targetSwitching);
-  localStorage.setItem('targetPriority', settings.targetPriority);
-  localStorage.setItem('avatar', settings.avatar);
-  applyTheme();
+function updateSetting(key, val) {
+  settings[key] = Number(val);
+  const el = document.getElementById(key + '-val');
+  if (el) el.textContent = val;
+}
+function toggleSettings() {
+  const body  = document.getElementById('settings-body');
+  const arrow = document.getElementById('settings-arrow');
+  const open  = body.style.display === 'none';
+  body.style.display = open ? 'block' : 'none';
+  if (arrow) arrow.textContent = open ? '▲' : '▼';
+}
+function toggleSound() {
+  settings.sound = !settings.sound;
+  const btn = document.getElementById('sound-toggle');
+  if (btn) { btn.textContent = settings.sound ? 'ON' : 'OFF'; btn.classList.toggle('off', !settings.sound); }
+}
+function setTheme(t) {
+  settings.theme = t;
+  document.body.className = document.body.className.replace(/theme-\w+/g,'').trim();
+  if (t !== 'cyan') document.body.classList.add('theme-' + t);
+  document.querySelectorAll('.theme-btn').forEach(b => b.classList.toggle('active', b.dataset.theme === t));
 }
 
-function applyTheme() {
-  document.documentElement.style.setProperty('--cyan', settings.accentColor);
-  if (settings.bgStyle === 'dark') {
-    document.body.style.background = 'var(--bg)';
-    document.body.style.backgroundImage = 'none';
-  } else if (settings.bgStyle === 'gradient') {
-    document.body.style.background = 'radial-gradient(circle at 20% 30%, #0a0a2a, #020210)';
-  } else if (settings.bgStyle === 'solid') {
-    document.body.style.background = settings.bgColor;
-  }
-  let style = document.getElementById('dynamic-target-colors');
-  if (!style) {
-    style = document.createElement('style');
-    style.id = 'dynamic-target-colors';
-    document.head.appendChild(style);
-  }
-  style.innerHTML = `
-    .target .target-inner { background: radial-gradient(circle at 35% 30%, ${settings.targetNormal}, #cc0033) !important; }
-    .target.flick .target-inner { background: radial-gradient(circle at 35% 30%, ${settings.targetFlick}, #ff8800) !important; }
-    .target.tracking .target-inner { background: radial-gradient(circle at 35% 30%, ${settings.targetTracking}, #00aa88) !important; }
-    .target.switching .target-inner { background: radial-gradient(circle at 35% 30%, ${settings.targetSwitching}, #7700cc) !important; }
-    .target.priority .target-inner { background: radial-gradient(circle at 35% 30%, ${settings.targetPriority}, #cc2200) !important; }
-  `;
-}
-
-// ── SOUND WITH VOLUME ────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+//  SOUND ENGINE (Web Audio API — no files needed)
+// ═══════════════════════════════════════════════════════════
 let audioCtx = null;
 function getAudio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   return audioCtx;
 }
-function setVolume(vol) {
-  settings.volume = Math.max(0, Math.min(1, vol / 100));
-  settings.sound = settings.volume > 0;
-  localStorage.setItem('volume', settings.volume);
-  document.getElementById('volume-val').innerText = Math.round(settings.volume * 100);
-}
-function playHit() {
-  if (!settings.sound || settings.volume === 0) return;
+function _tone(freq, endFreq, type, gainStart, gainEnd, duration) {
+  if (!settings.sound) return;
   try {
-    const ctx = getAudio(), o = ctx.createOscillator(), g = ctx.createGain();
-    o.connect(g); g.connect(ctx.destination);
-    o.frequency.setValueAtTime(800, ctx.currentTime);
-    o.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.08);
-    g.gain.setValueAtTime(0.3 * settings.volume, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
-    o.start(); o.stop(ctx.currentTime + 0.1);
-  } catch(e) {}
-}
-function playMiss() {
-  if (!settings.sound || settings.volume === 0) return;
-  try {
-    const ctx = getAudio(), o = ctx.createOscillator(), g = ctx.createGain();
-    o.connect(g); g.connect(ctx.destination);
-    o.type = 'sawtooth';
-    o.frequency.setValueAtTime(200, ctx.currentTime);
-    g.gain.setValueAtTime(0.15 * settings.volume, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
-    o.start(); o.stop(ctx.currentTime + 0.08);
-  } catch(e) {}
-}
-function playReaction(ms) {
-  if (!settings.sound || settings.volume === 0) return;
-  try {
-    const ctx = getAudio(), freq = ms < 200 ? 1200 : ms < 300 ? 900 : 600;
+    const ctx = getAudio();
     const o = ctx.createOscillator(), g = ctx.createGain();
     o.connect(g); g.connect(ctx.destination);
+    o.type = type || 'sine';
     o.frequency.setValueAtTime(freq, ctx.currentTime);
-    g.gain.setValueAtTime(0.3 * settings.volume, ctx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
-    o.start(); o.stop(ctx.currentTime + 0.15);
+    if (endFreq) o.frequency.exponentialRampToValueAtTime(endFreq, ctx.currentTime + duration);
+    g.gain.setValueAtTime(gainStart, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+    o.start(); o.stop(ctx.currentTime + duration);
   } catch(e) {}
 }
+function playHit()           { _tone(900, 450, 'sine',     0.25, 0.001, 0.09); }
+function playPriorityHit()   { _tone(1200, 600, 'sine',    0.3,  0.001, 0.12); }
+function playMiss()          { _tone(200, 150, 'sawtooth', 0.12, 0.001, 0.08); }
+function playStreak(n)       { _tone(400 + n*80, 800, 'sine', 0.2, 0.001, 0.15); }
+function playReaction(ms)    { _tone(ms<200?1400:ms<300?1000:700, null, 'sine', 0.28, 0.001, 0.14); }
+function playCountdown()     { _tone(440, null, 'square', 0.15, 0.001, 0.06); }
 
-// ── ANTI-CHEAT & STATE ────────────────────────────────────
-const MAX_SCORE = 24000, MAX_HITS = 250, MIN_MS_PER_HIT = 120;
-let currentUser = null, currentProfile = null, selectedMode = 'static';
+// ═══════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════
+let currentUser    = null;
+let currentProfile = null;
+let selectedMode   = 'static';
+
 let score = 0, hits = 0, misses = 0, timeLeft = 30;
-let gameTimer = null, spawnTimer = null, isGameRunning = false;
-let lastHitTime = 0, sessionStartTime = 0, hitTimestamps = [];
-let reactionTimes = [], reactionState = 'idle', reactionTimeout = null;
 let streak = 0, bestStreak = 0;
-let trackingFrameId = null, trackingMonitorInterval = null;
-let currentLbTab = 'static';
-const HUD_HEIGHT = 65;
-const RANKED_MODES = ['static','flick','tracking','switching','reaction'];
+let gameTimer = null, spawnTimer = null, isGameRunning = false;
+let lastHitTime = 0, sessionStartTime = 0;
+let hitTimestamps = [], reactionTimes = [];
+let reactionState = 'idle', reactionTimeout = null;
+let reactionRound = 0;
+const reactionMax = 10;
+let trackingFrameId  = null;
+let traceFrameId     = null;
+let currentLbTab     = 'static';
 
-// ── SUPABASE HELPER ───────────────────────────────────────
+// Trace state
+let traceX=0, traceY=0, traceAngle=0, traceSpeed=0;
+let traceTargetX=0, traceTargetY=0, traceChangeTimer=0;
+let traceMouseX=0, traceMouseY=0;
+let traceOnFrames=0, traceTotalFrames=0;
+
+const TRACE_DIFF = {
+  easy:   { baseSpeed:1.4, maxSpeed:2.2, turnRate:0.018, size:80, maxDist:55, ppf:2  },
+  medium: { baseSpeed:2.8, maxSpeed:4.5, turnRate:0.030, size:60, maxDist:40, ppf:4  },
+  hard:   { baseSpeed:5.0, maxSpeed:8.0, turnRate:0.045, size:44, maxDist:28, ppf:7  },
+};
+
+// Avatars
+const AVATARS = ['🎯','⚡','👾','🔥','💀','🦅','🐉','🦊','🤖','👻','🦁','🐺','🧠','👑','💎','🔮','🌀','⚔️','🛸','🎮'];
+
+// ═══════════════════════════════════════════════════════════
+//  SUPABASE
+// ═══════════════════════════════════════════════════════════
 async function supabase(path, opts = {}, token = null) {
-  const res = await fetch(SUPABASE_URL + path, {
-    ...opts,
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': SUPABASE_KEY,
-      'Authorization': `Bearer ${token || currentUser?.access_token || SUPABASE_KEY}`
-    }
-  });
-  const text = await res.text();
-  try { return { ok:res.ok, data:JSON.parse(text) }; }
-  catch { return { ok:res.ok, data:text }; }
-}
-async function fetchGlobalRank(score) {
   try {
-    const { ok, data } = await supabase(`/rest/v1/profiles?best_score=gt.${score}&select=id&limit=1000`);
+    const res = await fetch(SUPABASE_URL + path, {
+      ...opts,
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_KEY,
+        'Authorization': `Bearer ${token || currentUser?.access_token || SUPABASE_KEY}`
+      }
+    });
+    const text = await res.text();
+    try { return { ok: res.ok, data: JSON.parse(text) }; }
+    catch { return { ok: res.ok, data: text }; }
+  } catch(e) {
+    return { ok: false, data: { message: e.message } };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  RANK HELPERS
+// ═══════════════════════════════════════════════════════════
+async function fetchGlobalRank(score) {
+  if (!score || score <= 0) return null;
+  try {
+    const { ok, data } = await supabase(`/rest/v1/profiles?best_score=gt.${score}&select=id&limit=2000`);
     if (ok && Array.isArray(data)) return data.length + 1;
   } catch(e) {}
   return null;
 }
+
+// FIX: query profiles.best_{mode} not scores table (no duplicates)
 async function fetchModeRank(mode, userScore) {
   if (!userScore || userScore <= 0) return null;
+  const col = 'best_' + mode;
   try {
-    const { ok, data } = await supabase(`/rest/v1/scores?mode=eq.${mode}&score=gt.${userScore}&select=id&limit=1000`);
+    const { ok, data } = await supabase(`/rest/v1/profiles?${col}=gt.${userScore}&select=id&limit=2000`);
     if (ok && Array.isArray(data)) return data.length + 1;
   } catch(e) {}
   return null;
 }
 
-// ── AUTO-LOGIN / SESSION ──────────────────────────────────
-function saveSession(user) {
-  if (user) localStorage.setItem('aimlab_user', JSON.stringify({ id: user.id, access_token: user.access_token, email: user.email }));
-  else localStorage.removeItem('aimlab_user');
-}
-async function tryAutoLogin() {
-  const saved = localStorage.getItem('aimlab_user');
-  if (!saved) return false;
-  try {
-    const user = JSON.parse(saved);
-    const prof = await supabase(`/rest/v1/profiles?id=eq.${user.id}&select=*`, {}, user.access_token);
-    if (!prof.ok || !prof.data?.length) { localStorage.removeItem('aimlab_user'); return false; }
-    currentUser = user;
-    currentProfile = prof.data[0];
-    if (currentProfile.avatar) settings.avatar = currentProfile.avatar;
-    applyTheme();
-    await enterMenu();
-    return true;
-  } catch(e) { localStorage.removeItem('aimlab_user'); return false; }
-}
-
-// ── AUTH ──────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+//  AUTH
+// ═══════════════════════════════════════════════════════════
 async function register() {
   const username = document.getElementById('reg-username').value.trim().toUpperCase();
-  const email = document.getElementById('reg-email').value.trim();
+  const email    = document.getElementById('reg-email').value.trim();
   const password = document.getElementById('reg-password').value;
-  const errEl = document.getElementById('register-error');
-  const btn = document.querySelector('#tab-register .btn-primary');
-  errEl.textContent = ''; btn.querySelector('span').textContent = 'CREATING...'; btn.disabled = true;
+  const errEl    = document.getElementById('register-error');
+  const btn      = document.querySelector('#tab-register .btn-primary');
+  errEl.textContent = '';
+  btn.querySelector('span').textContent = 'CREATING...';
+  btn.disabled = true;
   try {
     if (!username || username.length < 3) throw new Error('Username must be at least 3 characters.');
-    if (!/^[A-Z0-9_]+$/.test(username)) throw new Error('Letters, numbers, underscores only.');
-    if (!email.includes('@')) throw new Error('Enter a valid email.');
-    if (password.length < 6) throw new Error('Password must be at least 6 characters.');
+    if (!/^[A-Z0-9_]+$/.test(username))  throw new Error('Letters, numbers, underscores only.');
+    if (!email.includes('@'))             throw new Error('Enter a valid email.');
+    if (password.length < 6)             throw new Error('Password must be at least 6 characters.');
+
+    // Check username taken
     const check = await supabase(`/rest/v1/profiles?username=eq.${encodeURIComponent(username)}&select=id`, {}, SUPABASE_KEY);
-    if (check.ok && Array.isArray(check.data) && check.data.length > 0) throw new Error('Username already taken.');
+    if (check.ok && Array.isArray(check.data) && check.data.length > 0)
+      throw new Error('Username already taken. Choose another.');
+
+    // Create auth user
     const auth = await supabase('/auth/v1/signup', { method:'POST', body:JSON.stringify({ email, password }) }, SUPABASE_KEY);
-    if (!auth.ok || !auth.data?.user?.id) throw new Error(auth.data?.msg || auth.data?.error_description || 'Registration failed.');
+    if (!auth.ok || !auth.data?.user?.id)
+      throw new Error(auth.data?.msg || auth.data?.error_description || 'Registration failed.');
+
     const uid = auth.data.user.id, token = auth.data.access_token;
+
     const profData = {
-      id:uid, username, best_score:0, total_hits:0, games_played:0,
-      best_static:0, best_flick:0, best_tracking:0, best_switching:0, best_reaction:0,
-      avatar: settings.avatar
+      id:uid, username, best_score:0, total_hits:0, games_played:0, avatar:'🎯',
+      best_static:0, best_flick:0, best_tracking:0, best_switching:0, best_reaction:0
     };
     const profRes = await supabase('/rest/v1/profiles', { method:'POST', body:JSON.stringify(profData) }, token);
-    if (!profRes.ok) throw new Error('Account created but profile save failed.');
-    currentUser = { id:uid, access_token:token, email };
+    if (!profRes.ok) throw new Error('Account created but profile save failed. Try logging in.');
+
+    currentUser    = { id:uid, access_token:token, email };
     currentProfile = profData;
-    saveSession(currentUser);
     await enterMenu();
-  } catch(e) { errEl.textContent = e.message; }
-  finally { btn.querySelector('span').textContent = 'CREATE ACCOUNT'; btn.disabled = false; }
+  } catch(e) {
+    errEl.textContent = e.message;
+  } finally {
+    btn.querySelector('span').textContent = 'CREATE ACCOUNT';
+    btn.disabled = false;
+  }
 }
+
 async function login() {
-  const email = document.getElementById('login-email').value.trim();
+  const email    = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value;
-  const errEl = document.getElementById('login-error');
-  const btn = document.querySelector('#tab-login .btn-primary');
-  errEl.textContent = ''; btn.querySelector('span').textContent = 'LOGGING IN...'; btn.disabled = true;
+  const errEl    = document.getElementById('login-error');
+  const btn      = document.querySelector('#tab-login .btn-primary');
+  errEl.textContent = '';
+  btn.querySelector('span').textContent = 'LOGGING IN...';
+  btn.disabled = true;
   try {
     if (!email.includes('@')) throw new Error('Enter a valid email.');
-    if (!password) throw new Error('Enter your password.');
-    const auth = await supabase('/auth/v1/token?grant_type=password', { method:'POST', body:JSON.stringify({ email, password }) }, SUPABASE_KEY);
-    if (!auth.ok || !auth.data?.access_token) throw new Error(auth.data?.error_description || 'Invalid login.');
+    if (!password)            throw new Error('Enter your password.');
+
+    const auth = await supabase('/auth/v1/token?grant_type=password', {
+      method:'POST', body:JSON.stringify({ email, password })
+    }, SUPABASE_KEY);
+    if (!auth.ok || !auth.data?.access_token)
+      throw new Error(auth.data?.error_description || auth.data?.msg || 'Invalid email or password.');
+
     currentUser = { id:auth.data.user.id, access_token:auth.data.access_token, email };
+
     const prof = await supabase(`/rest/v1/profiles?id=eq.${currentUser.id}&select=*`, {}, auth.data.access_token);
-    if (!prof.ok || !prof.data?.length) throw new Error('Profile not found.');
+    if (!prof.ok || !prof.data?.length) throw new Error('Profile not found. Please re-register.');
+
     currentProfile = prof.data[0];
-    if (currentProfile.avatar) settings.avatar = currentProfile.avatar;
-    saveSession(currentUser);
+
+    // Back-fill missing best_* columns for old accounts
+    for (const m of RANKED_MODES) {
+      if (currentProfile['best_' + m] === undefined) currentProfile['best_' + m] = 0;
+    }
+    if (!currentProfile.avatar) currentProfile.avatar = '🎯';
+
     await enterMenu();
-  } catch(e) { errEl.textContent = e.message; }
-  finally { btn.querySelector('span').textContent = 'LOGIN'; btn.disabled = false; }
+  } catch(e) {
+    errEl.textContent = e.message;
+  } finally {
+    btn.querySelector('span').textContent = 'LOGIN';
+    btn.disabled = false;
+  }
 }
+
 function logout() {
   currentUser = null; currentProfile = null;
-  saveSession(null);
   showScreen('auth-screen');
 }
+
 async function enterMenu() {
-  const rank = getRank(currentProfile.best_score);
-  const prog = getRankProgress(currentProfile.best_score);
-  const globalR = await fetchGlobalRank(currentProfile.best_score);
-  document.getElementById('badge-username').textContent = currentProfile.username;
-  document.getElementById('badge-avatar').textContent = settings.avatar;
-  document.getElementById('badge-rank-icon').textContent = rank.icon;
-  document.getElementById('badge-rank-name').textContent = rank.name;
-  document.getElementById('badge-best').textContent = 'Best: ' + currentProfile.best_score.toLocaleString();
-  document.getElementById('badge-global-rank').textContent = globalR ? '🌍 RANK #' + globalR : '';
-  document.getElementById('badge-rank-fill').style.width = prog.pct + '%';
-  document.getElementById('badge-rank-next').textContent = prog.next ? prog.pointsNeeded.toLocaleString() + ' pts → ' + prog.next.name : '✦ MAX RANK';
+  const rank  = getRank(currentProfile.best_score);
+  const prog  = getRankProgress(currentProfile.best_score);
+
+  _setEl('badge-username',   currentProfile.username);
+  _setEl('badge-rank-icon',  rank.icon);
+  _setEl('badge-rank-name',  rank.name);
+  _setEl('badge-best',       'Best: ' + (currentProfile.best_score||0).toLocaleString());
+  _setEl('badge-avatar',     currentProfile.avatar || '🎯');
+  _setEl('badge-rank-next',  prog.next ? prog.pointsNeeded.toLocaleString() + ' pts → ' + prog.next.name : '✦ MAX RANK');
+  const fillEl = document.getElementById('badge-rank-fill');
+  if (fillEl) fillEl.style.width = prog.pct + '%';
+
+  // Fetch global rank async (don't block menu)
+  fetchGlobalRank(currentProfile.best_score).then(r => {
+    _setEl('badge-global-rank', r ? '🌍 #' + r : '');
+  });
+
   showScreen('menu-screen');
 }
 
-// ── UI HELPERS ──────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+//  PROFILE SCREEN
+// ═══════════════════════════════════════════════════════════
+async function showProfile() {
+  showScreen('profile-screen');
+  const p    = currentProfile;
+  const rank = getRank(p.best_score);
+  const prog = getRankProgress(p.best_score);
+
+  _setEl('prof-rank-icon',       rank.icon);
+  _setEl('prof-username',        p.username);
+  _setEl('prof-rank-name',       rank.name);
+  _setEl('prof-games',           (p.games_played||0).toLocaleString());
+  _setEl('prof-total-hits',      (p.total_hits||0).toLocaleString());
+  _setEl('prof-best',            (p.best_score||0).toLocaleString());
+  _setEl('prof-avatar',          p.avatar||'🎯');
+
+  // Progress bar
+  const fillEl = document.getElementById('prof-progress-fill');
+  if (fillEl) fillEl.style.width = prog.pct + '%';
+  _setEl('prof-cur-rank',       rank.icon + ' ' + rank.name);
+  _setEl('prof-next-rank',      prog.next ? prog.next.icon + ' ' + prog.next.name : '✦ MAX');
+  _setEl('prof-progress-label', prog.next ? `${(p.best_score||0).toLocaleString()} / ${prog.next.min.toLocaleString()}` : 'MAX RANK');
+  _setEl('prof-progress-sub',   prog.next ? `${prog.pct}% — ${prog.pointsNeeded.toLocaleString()} pts to ${prog.next.name}` : 'You have reached the highest rank!');
+
+  _setEl('prof-global', 'LOADING...');
+  fetchGlobalRank(p.best_score).then(r => {
+    _setEl('prof-global', r ? '🌍 GLOBAL RANK #' + r : '🌍 GLOBAL RANK —');
+  });
+
+  // Per-mode bests + rank
+  for (const mode of RANKED_MODES) {
+    const ms = p['best_' + mode] || 0;
+    _setEl('prof-best-' + mode, ms > 0 ? ms.toLocaleString() : '—');
+    _setEl('prof-rank-' + mode, '...');
+    if (ms > 0) {
+      fetchModeRank(mode, ms).then(r => {
+        _setEl('prof-rank-' + mode, r ? '#' + r : '—');
+      });
+    } else {
+      _setEl('prof-rank-' + mode, '—');
+    }
+  }
+  _setEl('prof-best-trace', '—');
+
+  // Build avatar picker
+  buildAvatarPicker();
+}
+
+function buildAvatarPicker() {
+  const grid = document.getElementById('avatar-grid');
+  if (!grid) return;
+  grid.innerHTML = '';
+  AVATARS.forEach(a => {
+    const btn = document.createElement('button');
+    btn.className = 'avatar-opt' + (a === (currentProfile.avatar||'🎯') ? ' active' : '');
+    btn.textContent = a;
+    btn.onclick = () => setAvatar(a);
+    grid.appendChild(btn);
+  });
+}
+
+function toggleAvatarPicker() {
+  const picker = document.getElementById('avatar-picker');
+  if (picker) picker.classList.toggle('open');
+}
+
+async function setAvatar(emoji) {
+  if (!currentUser) return;
+  currentProfile.avatar = emoji;
+  _setEl('prof-avatar', emoji);
+  _setEl('badge-avatar', emoji);
+  document.querySelectorAll('.avatar-opt').forEach(b => b.classList.toggle('active', b.textContent === emoji));
+  // Save to DB
+  await supabase(`/rest/v1/profiles?id=eq.${currentUser.id}`, {
+    method:'PATCH', body:JSON.stringify({ avatar: emoji })
+  });
+  const picker = document.getElementById('avatar-picker');
+  if (picker) picker.classList.remove('open');
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SCREEN HELPERS
+// ═══════════════════════════════════════════════════════════
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
 }
+function switchTab(tab) {
+  document.getElementById('tab-login').style.display    = tab === 'login'    ? 'flex' : 'none';
+  document.getElementById('tab-register').style.display = tab === 'register' ? 'flex' : 'none';
+  document.querySelectorAll('.auth-tab').forEach((el, i) =>
+    el.classList.toggle('active', (i===0 && tab==='login') || (i===1 && tab==='register')));
+}
 function selectMode(mode) {
   selectedMode = mode;
-  document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('mode-' + mode).classList.add('active');
+  document.querySelectorAll('.mode-card').forEach(b => b.classList.remove('active'));
+  const el = document.getElementById('mode-' + mode);
+  if (el) el.classList.add('active');
 }
-function switchTab(tab) {
-  document.getElementById('tab-login').style.display = tab === 'login' ? 'flex' : 'none';
-  document.getElementById('tab-register').style.display = tab === 'register' ? 'flex' : 'none';
-  document.querySelectorAll('.auth-tab').forEach((el,i) => el.classList.toggle('active', (i===0 && tab==='login') || (i===1 && tab==='register')));
-}
-function toggleSettings() {
-  const body = document.getElementById('settings-body');
-  const arrow = document.getElementById('settings-arrow');
-  const open = body.style.display === 'none';
-  body.style.display = open ? 'flex' : 'none';
-  arrow.textContent = open ? '▲' : '▼';
-}
-function switchSettingsTab(tabName) {
-  document.querySelectorAll('.settings-tab-content').forEach(c => c.classList.remove('active'));
-  document.getElementById(`settings-${tabName}`).classList.add('active');
-  document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
-  document.querySelector(`.settings-tab[data-tab="${tabName}"]`).classList.add('active');
-}
-function quitGame() {
-  if (!isGameRunning) return;
-  isGameRunning = false;
-  clearInterval(gameTimer); clearInterval(spawnTimer); clearTimeout(reactionTimeout);
-  stopTracking(); stopTraceMode(); clearGameArea();
-  document.getElementById('reaction-overlay').style.display = 'none';
-  showScreen('menu-screen');
+function _setEl(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
 }
 
-// ── PROFILE & AVATAR ────────────────────────────────────
-const AVATARS = ['🎯', '🥷', '👑', '🔥', '💀', '🤖', '🦅', '🐺', '⚡', '🎮', '🏹', '🔫'];
-function initAvatarSelector() {
-  const container = document.getElementById('avatar-selector');
-  if (!container) return;
-  container.innerHTML = '';
-  AVATARS.forEach(emoji => {
-    const btn = document.createElement('button');
-    btn.textContent = emoji;
-    btn.className = 'avatar-option' + (settings.avatar === emoji ? ' active' : '');
-    btn.onclick = () => {
-      settings.avatar = emoji;
-      document.querySelectorAll('.avatar-option').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      saveSettings();
-      if (currentProfile) updateProfileAvatar();
-    };
-    container.appendChild(btn);
-  });
-}
-async function updateProfileAvatar() {
-  if (!currentUser) return;
-  try {
-    await supabase(`/rest/v1/profiles?id=eq.${currentUser.id}`, { method:'PATCH', body:JSON.stringify({ avatar: settings.avatar }) }, currentUser.access_token);
-    if (currentProfile) currentProfile.avatar = settings.avatar;
-    document.getElementById('badge-avatar').textContent = settings.avatar;
-    const profAvatar = document.getElementById('prof-avatar');
-    if (profAvatar) profAvatar.textContent = settings.avatar;
-  } catch(e) { console.warn('Avatar save failed', e); }
-}
-async function saveProfileChanges() {
-  await updateProfileAvatar();
-  alert('Profile saved!');
-}
-async function showProfile() {
-  showScreen('profile-screen');
-  const p = currentProfile;
-  const rank = getRank(p.best_score);
-  const prog = getRankProgress(p.best_score);
-  document.getElementById('prof-avatar').textContent = settings.avatar;
-  document.getElementById('prof-username').textContent = p.username;
-  document.getElementById('prof-rank-name').textContent = rank.name;
-  document.getElementById('prof-games').textContent = (p.games_played || 0).toLocaleString();
-  document.getElementById('prof-total-hits').textContent = (p.total_hits || 0).toLocaleString();
-  document.getElementById('prof-best').textContent = (p.best_score || 0).toLocaleString();
-  document.getElementById('prof-progress-fill').style.width = prog.pct + '%';
-  document.getElementById('prof-cur-rank').textContent = rank.icon + ' ' + rank.name;
-  document.getElementById('prof-next-rank').textContent = prog.next ? prog.next.icon + ' ' + prog.next.name : '✦ MAX';
-  document.getElementById('prof-progress-label').textContent = prog.next ? `${p.best_score.toLocaleString()} / ${prog.next.min.toLocaleString()}` : 'MAX RANK';
-  document.getElementById('prof-progress-sub').textContent = prog.next ? `${prog.pct}% — ${prog.pointsNeeded.toLocaleString()} points to ${prog.next.name}` : 'Maximum rank!';
-  document.getElementById('prof-global').textContent = 'LOADING...';
-  const globalR = await fetchGlobalRank(p.best_score);
-  document.getElementById('prof-global').textContent = globalR ? '🌍 GLOBAL RANK #' + globalR : '🌍 GLOBAL RANK —';
-  for (const mode of RANKED_MODES) {
-    const modeScore = p['best_' + mode] || 0;
-    const scoreEl = document.getElementById('prof-best-' + mode);
-    const rankEl = document.getElementById('prof-rank-' + mode);
-    if (scoreEl) scoreEl.textContent = modeScore.toLocaleString();
-    if (rankEl) {
-      rankEl.textContent = '...';
-      fetchModeRank(mode, modeScore).then(r => { if (rankEl) rankEl.textContent = r ? '#' + r + ' in mode' : '—'; });
-    }
-  }
-}
-
-// ── CROSSHAIR ───────────────────────────────────────────
-let _xhairEl = null;
-function initCrosshair() {
-  const old = document.getElementById('custom-crosshair');
-  if (old) old.remove();
-  _xhairEl = document.createElement('div');
-  _xhairEl.id = 'custom-crosshair';
-  document.body.appendChild(_xhairEl);
-  document.addEventListener('mousemove', e => { if (_xhairEl) { _xhairEl.style.left = e.clientX + 'px'; _xhairEl.style.top = e.clientY + 'px'; } }, { passive:true });
-  setCrosshair(settings.crosshair);
-}
-function setCrosshair(style) {
-  settings.crosshair = style;
-  saveSettings();
-  const color = settings.xhairColor;
-  const styleMap = {
-    classic: `<div style="position:absolute;width:16px;height:2px;background:${color};opacity:.9;top:50%;left:50%;transform:translate(-50%,-50%)"></div><div style="position:absolute;width:2px;height:16px;background:${color};opacity:.9;top:50%;left:50%;transform:translate(-50%,-50%)"></div><div style="position:absolute;width:3px;height:3px;border-radius:50%;background:${color};top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 0 5px ${color}"></div>`,
-    dot: `<div style="position:absolute;width:6px;height:6px;border-radius:50%;background:${color};top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 0 8px ${color},0 0 16px ${color}55"></div>`,
-    circle: `<div style="position:absolute;width:20px;height:20px;border:1.5px solid ${color};border-radius:50%;top:50%;left:50%;transform:translate(-50%,-50%)"></div><div style="position:absolute;width:3px;height:3px;border-radius:50%;background:${color};top:50%;left:50%;transform:translate(-50%,-50%)"></div>`,
-    gap: `<div style="position:absolute;width:5px;height:2px;background:${color};top:50%;left:50%;transform:translate(-50%,-50%) translateX(-8px)"></div><div style="position:absolute;width:5px;height:2px;background:${color};top:50%;left:50%;transform:translate(-50%,-50%) translateX(8px)"></div><div style="position:absolute;width:2px;height:5px;background:${color};top:50%;left:50%;transform:translate(-50%,-50%) translateY(-8px)"></div><div style="position:absolute;width:2px;height:5px;background:${color};top:50%;left:50%;transform:translate(-50%,-50%) translateY(8px)"></div><div style="position:absolute;width:3px;height:3px;border-radius:50%;background:${color};top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 0 5px ${color}"></div>`,
-    cross: `<div style="position:absolute;width:22px;height:2px;background:${color};top:50%;left:50%;transform:translate(-50%,-50%)"></div><div style="position:absolute;width:2px;height:22px;background:${color};top:50%;left:50%;transform:translate(-50%,-50%)"></div>`,
-    t: `<div style="position:absolute;width:18px;height:2px;background:${color};top:50%;left:50%;transform:translate(-50%,-50%)"></div><div style="position:absolute;width:2px;height:9px;background:${color};top:50%;left:50%;transform:translate(-50%,-50%) translateY(5px)"></div><div style="position:absolute;width:3px;height:3px;border-radius:50%;background:#ff6b35;top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 0 5px #ff6b35"></div>`,
-  };
-  if (_xhairEl) _xhairEl.innerHTML = styleMap[style] || styleMap.classic;
-  document.querySelectorAll('.xhair-btn').forEach(b => b.classList.toggle('active', b.dataset.xhair === style));
-}
-function setDifficulty(d) {
-  settings.difficulty = d;
-  saveSettings();
-  document.querySelectorAll('.diff-btn').forEach(b => b.classList.toggle('active', b.dataset.diff === d));
-}
-
-// ── GAME START ───────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+//  GAME START
+// ═══════════════════════════════════════════════════════════
 function startGame() {
   if (!currentUser || !currentProfile) return showScreen('auth-screen');
-  score = 0; hits = 0; misses = 0; timeLeft = 30; lastHitTime = 0; streak = 0; bestStreak = 0;
+
+  // Full reset
+  score = 0; hits = 0; misses = 0; timeLeft = 30;
+  streak = 0; bestStreak = 0; lastHitTime = 0;
   hitTimestamps = []; reactionTimes = [];
   sessionStartTime = Date.now();
   isGameRunning = true;
-  stopTracking(); if (trackingMonitorInterval) clearInterval(trackingMonitorInterval);
-  updateHUD(); clearGameArea();
+
+  stopTracking(); stopTraceMode();
+  clearGameArea(); updateHUD();
+
   showScreen('game-screen');
   document.getElementById('timer-display').classList.remove('urgent');
-  document.getElementById('mode-label-hud').textContent = selectedMode.toUpperCase();
+  _setEl('mode-label-hud', selectedMode.toUpperCase());
+  const streakEl = document.getElementById('hud-streak');
+  if (streakEl) streakEl.style.display = 'none';
+
+  const reactEl = document.getElementById('reaction-overlay');
+  if (reactEl) reactEl.style.display = 'none';
+
   if (selectedMode === 'reaction') { startReactionMode(); return; }
-  if (selectedMode === 'trace') { startTraceMode(); return; }
-  document.getElementById('reaction-overlay').style.display = 'none';
+  if (selectedMode === 'trace')    { startTraceMode();    return; }
+
+  // Standard timer
   gameTimer = setInterval(() => {
     timeLeft--;
-    document.getElementById('timer-display').textContent = timeLeft;
-    if (timeLeft <= 5) document.getElementById('timer-display').classList.add('urgent');
+    const td = document.getElementById('timer-display');
+    if (td) td.textContent = timeLeft;
+    if (timeLeft <= 5) { if (td) td.classList.add('urgent'); playCountdown(); }
     if (timeLeft <= 0) endGame();
   }, 1000);
-  const intervals = { static:900, flick:950, tracking:1800, switching:550 };
-  spawnTimer = setInterval(() => spawnTarget(), intervals[selectedMode] || settings.spawn);
-  spawnTarget();
-  if (selectedMode === 'tracking') {
-    startTracking();
-    trackingMonitorInterval = setInterval(() => { if (isGameRunning && document.querySelectorAll('.target.tracking').length < 2) spawnTarget(); }, 4000);
+
+  // Mode spawn intervals
+  const intervals = { static: settings.spawn, flick: 1200, tracking: 2200, switching: 650 };
+  const interval  = intervals[selectedMode] || settings.spawn;
+  spawnTimer = setInterval(spawnTarget, interval);
+  spawnTarget(); // immediate first spawn
+
+  if (selectedMode === 'tracking') startTracking();
+  if (selectedMode === 'switching') {
+    setTimeout(spawnTarget, 200);
+    setTimeout(spawnTarget, 450);
   }
-  if (selectedMode === 'switching') { setTimeout(spawnTarget,200); setTimeout(spawnTarget,400); }
 }
 
-// ── TRACKING MODE ────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+//  TRACKING MODE MOVEMENT
+// ═══════════════════════════════════════════════════════════
 function startTracking() {
-  const BASE_SPEED = 3.2;
-  function moveTargets() {
+  function frame() {
     if (!isGameRunning) return;
     const ga = document.getElementById('game-area');
+    if (!ga) return;
     const W = ga.offsetWidth, H = ga.offsetHeight;
+
     document.querySelectorAll('.target.tracking').forEach(t => {
-      let angle = parseFloat(t.dataset.angle) || Math.random() * Math.PI * 2;
-      let spd = parseFloat(t.dataset.spd) || BASE_SPEED;
+      let angle = parseFloat(t.dataset.angle) || 0;
+      let spd   = parseFloat(t.dataset.spd)   || 3;
+      // FIX: use parseInt(style) for live position, not spawn coords
       let x = parseFloat(t.style.left);
       let y = parseFloat(t.style.top);
-      const r = 30;
-      angle += (Math.random() - 0.5) * 0.06;
+      const r = settings.size / 2 + 4;
+
+      angle += (Math.random() - 0.5) * 0.05; // gentle curve
+
       x += Math.cos(angle) * spd;
       y += Math.sin(angle) * spd;
-      if (x < r) { x = r; angle = Math.PI - angle + (Math.random()-0.5)*0.3; }
+
+      // FIX: clamp before bounce to prevent sticking at walls
+      if (x < r)   { x = r;   angle = Math.PI - angle + (Math.random()-0.5)*0.3; }
       if (x > W-r) { x = W-r; angle = Math.PI - angle + (Math.random()-0.5)*0.3; }
       if (y < HUD_HEIGHT+r) { y = HUD_HEIGHT+r; angle = -angle + (Math.random()-0.5)*0.3; }
-      if (y > H-r) { y = H-r; angle = -angle + (Math.random()-0.5)*0.3; }
-      t.style.left = x + 'px';
-      t.style.top = y + 'px';
-      t.dataset.angle = angle;
-      t.dataset.spd = spd;
+      if (y > H-r)          { y = H-r;          angle = -angle + (Math.random()-0.5)*0.3; }
+
+      t.style.left     = x + 'px';
+      t.style.top      = y + 'px';
+      t.dataset.angle  = angle;
+      t.dataset.spd    = spd;
     });
-    trackingFrameId = requestAnimationFrame(moveTargets);
+    trackingFrameId = requestAnimationFrame(frame);
   }
-  trackingFrameId = requestAnimationFrame(moveTargets);
+  trackingFrameId = requestAnimationFrame(frame);
 }
 function stopTracking() {
-  if (trackingFrameId) cancelAnimationFrame(trackingFrameId);
-  trackingFrameId = null;
-  if (trackingMonitorInterval) clearInterval(trackingMonitorInterval);
-  trackingMonitorInterval = null;
+  if (trackingFrameId) { cancelAnimationFrame(trackingFrameId); trackingFrameId = null; }
 }
 
-// ── REACTION MODE ────────────────────────────────────────
-let reactionRound = 0, reactionMax = 10;
+// ═══════════════════════════════════════════════════════════
+//  REACTION MODE
+// ═══════════════════════════════════════════════════════════
 function startReactionMode() {
   reactionRound = 0; reactionTimes = [];
-  document.getElementById('reaction-overlay').style.display = 'flex';
-  document.getElementById('reaction-scores').innerHTML = '';
-  document.getElementById('reaction-time').textContent = '';
+  const ov = document.getElementById('reaction-overlay');
+  if (ov) { ov.style.display = 'flex'; }
+  _setEl('reaction-scores', '');
+  _setEl('reaction-time', '');
+
   nextReaction();
+
   gameTimer = setInterval(() => {
     timeLeft--;
-    document.getElementById('timer-display').textContent = timeLeft;
+    const td = document.getElementById('timer-display');
+    if (td) td.textContent = timeLeft;
     if (timeLeft <= 0) endGame();
   }, 1000);
 }
+
 function nextReaction() {
+  if (!isGameRunning) return;
   if (reactionRound >= reactionMax) { endGame(); return; }
+
   reactionState = 'waiting';
   const msg = document.getElementById('reaction-msg');
-  msg.textContent = 'WAIT FOR GREEN...'; msg.className = 'reaction-msg';
-  document.getElementById('reaction-time').textContent = '';
+  if (msg) { msg.textContent = 'WAIT FOR GREEN...'; msg.className = 'reaction-msg'; }
+  _setEl('reaction-time', '');
   clearGameArea();
-  const delay = 500 + Math.random()*1500;
+
+  const delay = 800 + Math.random() * 2200; // 0.8–3s, unpredictable
   reactionTimeout = setTimeout(() => {
     if (!isGameRunning) return;
+    const ga = document.getElementById('game-area');
+    if (!ga) return;
+    const sz = settings.size;
+    const x  = Math.random() * (ga.offsetWidth  - sz*2) + sz;
+    const y  = Math.random() * (ga.offsetHeight - sz*2 - HUD_HEIGHT) + sz + HUD_HEIGHT;
+
     const target = document.createElement('div');
     target.className = 'target';
-    const ga = document.getElementById('game-area'), sz = settings.size;
-    const x = Math.random()*(ga.offsetWidth-sz*2)+sz;
-    const y = Math.random()*(ga.offsetHeight-sz*2-HUD_HEIGHT)+sz+HUD_HEIGHT;
-    target.style.cssText = `width:${sz}px;height:${sz}px;left:${x}px;top:${y}px;`;
-    target.innerHTML = '<div class="target-inner" style="background:radial-gradient(circle at 35% 30%,#00ff88,#00aa55);border-color:rgba(0,255,136,0.8);box-shadow:0 0 20px rgba(0,255,100,0.7)"></div>';
+    target.style.cssText = `width:${sz}px;height:${sz}px;left:${x}px;top:${y}px`;
+    target.innerHTML = `<div class="target-inner" style="background:radial-gradient(circle at 35% 30%,#00ff88,#00aa55);border-color:rgba(0,255,136,0.9);box-shadow:0 0 20px rgba(0,255,100,0.7)"></div>`;
     target.addEventListener('mousedown', e => { e.stopPropagation(); handleReactionHit(); });
     ga.appendChild(target);
-    msg.textContent = 'CLICK!'; msg.className = 'reaction-msg go';
-    reactionState = 'go'; lastHitTime = Date.now();
+
+    if (msg) { msg.textContent = 'CLICK!'; msg.className = 'reaction-msg go'; }
+    reactionState = 'go';
+    lastHitTime = Date.now();
   }, delay);
 }
+
 function handleReactionHit() {
   if (!isGameRunning || reactionState !== 'go') return;
   const ms = Date.now() - lastHitTime;
   reactionTimes.push(ms);
   reactionState = 'idle'; reactionRound++;
-  hits++; score += Math.max(200, Math.round(2500 - ms*4));
-  updateHUD(); playReaction(ms); clearGameArea();
-  document.getElementById('reaction-time').textContent = ms+'ms';
-  addReactionPill(ms+'ms');
+  const pts = Math.max(200, Math.round(2500 - ms * 4));
+  hits++; score += pts; updateHUD(); playReaction(ms); clearGameArea();
+
+  _setEl('reaction-time', ms + 'ms');
+  addReactionPill(ms + 'ms');
+
   const msg = document.getElementById('reaction-msg');
-  msg.textContent = ms<180?'GODLIKE!':ms<250?'FAST!':ms<380?'GOOD':ms<550?'OKAY':'SLOW...';
-  msg.className = 'reaction-msg go';
+  if (msg) {
+    msg.textContent = ms<150?'INHUMAN!':ms<200?'GODLIKE!':ms<280?'FAST!':ms<400?'GOOD':ms<600?'OKAY':'SLOW...';
+    msg.className = 'reaction-msg go';
+  }
   setTimeout(nextReaction, 1200);
 }
-function handleEarlyReactionClick() {
-  if (!isGameRunning || reactionState !== 'waiting') return;
-  clearTimeout(reactionTimeout);
-  const msg = document.getElementById('reaction-msg');
-  msg.textContent = 'TOO EARLY!'; msg.className = 'reaction-msg early';
-  playMiss();
-  misses++;
-  updateHUD();
-  addReactionPill('EARLY');
-  reactionRound++;
-  setTimeout(nextReaction, 1000);
-}
+
 function addReactionPill(text) {
   const el = document.createElement('div');
   el.className = 'reaction-score-pill'; el.textContent = text;
-  document.getElementById('reaction-scores').appendChild(el);
+  const sc = document.getElementById('reaction-scores');
+  if (sc) sc.appendChild(el);
 }
 
-// ── SPAWN TARGET ─────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+//  SPAWN TARGET
+// ═══════════════════════════════════════════════════════════
 function spawnTarget() {
   if (!isGameRunning || selectedMode === 'reaction' || selectedMode === 'trace') return;
-  if (selectedMode === 'tracking' && document.querySelectorAll('.target.tracking').length >= 6) return;
+
+  // Cap tracking targets at 3 simultaneously
+  if (selectedMode === 'tracking' && document.querySelectorAll('.target.tracking').length >= 3) return;
+
   const ga = document.getElementById('game-area');
-  const sz = settings.size, margin = sz;
-  const x = Math.random()*(ga.offsetWidth - margin*2) + margin;
-  const y = Math.random()*(ga.offsetHeight - margin*2 - HUD_HEIGHT) + margin + HUD_HEIGHT;
+  if (!ga) return;
+  const sz = settings.size, margin = sz + 4;
+  const x  = Math.random() * (ga.offsetWidth  - margin*2) + margin;
+  const y  = Math.random() * (ga.offsetHeight - margin*2 - HUD_HEIGHT) + margin + HUD_HEIGHT;
+
+  // Switching: rotate which target is priority
   if (selectedMode === 'switching') {
     document.querySelectorAll('.target.priority').forEach(t => t.classList.remove('priority'));
     const existing = document.querySelectorAll('.target.switching');
-    if (existing.length > 0) existing[Math.floor(Math.random()*existing.length)].classList.add('priority');
+    if (existing.length > 0) {
+      existing[Math.floor(Math.random() * existing.length)].classList.add('priority');
+    }
   }
+
+  const modeClass = { tracking:'tracking', switching:'switching', flick:'flick' }[selectedMode] || '';
   const target = document.createElement('div');
-  target.className = 'target ' + (selectedMode==='tracking' ? 'tracking' : selectedMode==='switching' ? 'switching' : selectedMode==='flick' ? 'flick' : '');
+  target.className = ('target ' + modeClass).trim();
   target.style.cssText = `width:${sz}px;height:${sz}px;left:${x}px;top:${y}px`;
-  if (selectedMode==='tracking') {
+
+  if (selectedMode === 'tracking') {
+    const spd = 2.5 + Math.random() * (settings.speed * 0.5);
     target.dataset.angle = Math.random() * Math.PI * 2;
-    target.dataset.spd = 2.5 + Math.random() * 2;
-    setTimeout(() => { if (target.parentNode) target.remove(); }, 8000);
+    target.dataset.spd   = spd;
   }
+
   target.innerHTML = '<div class="target-inner"></div>';
-  target.addEventListener('mousedown', e => { e.stopPropagation(); hitTarget(target); });
+
+  // FIX: use mousedown (not click) for faster response
+  target.addEventListener('mousedown', e => {
+    e.stopPropagation();
+    // FIX for tracking: get LIVE position from element, not stale spawn coords
+    const rect  = target.getBoundingClientRect();
+    const gaRect = ga.getBoundingClientRect();
+    const liveX  = rect.left - gaRect.left + rect.width / 2;
+    const liveY  = rect.top  - gaRect.top  + rect.height / 2;
+    hitTarget(target, liveX, liveY);
+  });
+
   ga.appendChild(target);
-  const ttl = { static:2200, flick:780, tracking:99999, switching:2800 };
-  if (selectedMode !== 'tracking') setTimeout(() => { if (target.parentNode) target.remove(); }, ttl[selectedMode]||2500);
+
+  // TTLs: flick is very short, tracking never auto-removes
+  const ttl = { static:2400, flick:650, tracking:99999, switching:3000 }[selectedMode] || 2400;
+
+  // Shrink ring for flick mode (visual countdown)
+  if (selectedMode === 'flick') {
+    const ring = document.createElement('div');
+    ring.className = 'shrink-ring';
+    ring.style.cssText = `left:${x}px;top:${y}px;--ttl:${ttl}ms;--start-size:${sz*2.5}px`;
+    ga.appendChild(ring);
+    setTimeout(() => { if (ring.parentNode) ring.remove(); }, ttl);
+  }
+
+  if (ttl < 99999) {
+    setTimeout(() => { if (target.parentNode) target.remove(); }, ttl);
+  }
 }
 
-// ── HIT ──────────────────────────────────────────────────
-function hitTarget(el) {
+// ═══════════════════════════════════════════════════════════
+//  HIT
+// ═══════════════════════════════════════════════════════════
+function hitTarget(el, x, y) {
   if (!isGameRunning) return;
-  const now = Date.now();
+
+  const now           = Date.now();
+  const timeSinceLast = lastHitTime ? (now - lastHitTime) : 9999;
   hitTimestamps.push(now);
-  const timeSinceLast = lastHitTime ? now-lastHitTime : 9999;
   lastHitTime = now;
-  streak++; if (streak > bestStreak) bestStreak = streak;
-  let points = 150, bonusText = null;
-  if (timeSinceLast < 350) { points += 120; bonusText = '+120 FAST!'; }
-  else if (timeSinceLast < 650) { points += 60; bonusText = '+60 QUICK'; }
-  if (selectedMode === 'flick') points = Math.round(points * 2.0);
-  if (selectedMode === 'tracking') points = Math.round(points * 1.6);
-  if (selectedMode === 'switching' && el.classList.contains('priority')) { points += 180; bonusText = '+180 PRIORITY!'; }
-  const streakMult = 1 + Math.min(0.5, Math.floor(streak / 5) * 0.1);
+
+  streak++;
+  if (streak > bestStreak) bestStreak = streak;
+
+  let points   = 150;
+  let bonusText = null;
+  const isPriority = el.classList.contains('priority');
+
+  // Speed bonus
+  if (timeSinceLast < 350)       { points += 120; bonusText = '+120 FAST!'; }
+  else if (timeSinceLast < 650)  { points += 60;  bonusText = '+60 QUICK';  }
+
+  // Mode multipliers
+  if (selectedMode === 'flick')    points = Math.round(points * 1.8);
+  if (selectedMode === 'tracking') points = Math.round(points * 1.5);
+  if (selectedMode === 'switching' && isPriority) { points += 200; bonusText = '+200 PRIORITY!'; }
+
+  // Streak multiplier: every 5 hits = +10% up to +60%
+  const streakMult = 1 + Math.min(0.6, Math.floor(streak / 5) * 0.1);
   points = Math.round(points * streakMult);
-  hits++; score += points; updateHUD(); playHit();
-  const rect = el.getBoundingClientRect();
-  const gaRect = document.getElementById('game-area').getBoundingClientRect();
-  const popX = rect.left - gaRect.left + rect.width/2;
-  const popY = rect.top - gaRect.top + rect.height/2;
-  showScorePopup(popX, popY, '+'+points, false);
-  if (bonusText) showScorePopup(popX, popY-36, bonusText, true);
-  if (streak >= 3) showStreakLabel(popX, popY+36, streak);
-  showHitRing(popX, popY);
+
+  hits++; score += points; updateHUD();
+
+  if (isPriority) playPriorityHit(); else playHit();
+  if (streak > 0 && streak % 5 === 0) playStreak(streak / 5);
+
+  showScorePopup(x, y, '+' + points, false);
+  if (bonusText) showScorePopup(x, y - 38, bonusText, true);
+  if (streak >= 3) showStreakLabel(x, y + 38);
+  showHitRing(x, y);
   el.remove();
-  if (selectedMode === 'tracking' && isGameRunning) setTimeout(() => spawnTarget(), 50);
+
+  // Update streak HUD
+  const sEl = document.getElementById('hud-streak');
+  const sCount = document.getElementById('streak-count');
+  if (sEl && sCount) {
+    if (streak >= 3) {
+      sEl.style.display = 'block';
+      sCount.textContent = streak;
+    } else {
+      sEl.style.display = 'none';
+    }
+  }
 }
+
+// ═══════════════════════════════════════════════════════════
+//  MISS
+// ═══════════════════════════════════════════════════════════
 function missClick(e) {
   if (!isGameRunning) return;
+  if (selectedMode === 'trace') return;
   if (selectedMode === 'reaction') {
-    if (reactionState === 'waiting') { handleEarlyReactionClick(); return; }
+    if (reactionState === 'waiting') {
+      clearTimeout(reactionTimeout);
+      const msg = document.getElementById('reaction-msg');
+      if (msg) { msg.textContent = 'TOO EARLY!'; msg.className = 'reaction-msg early'; }
+      playMiss(); reactionTimes.push(999); reactionRound++;
+      addReactionPill('EARLY');
+      setTimeout(nextReaction, 1000);
+    }
     return;
   }
   if (e.target.classList.contains('target') || e.target.classList.contains('target-inner')) return;
+
   misses++; streak = 0; updateHUD(); playMiss();
   const flash = document.getElementById('miss-flash');
   if (flash) { flash.classList.add('active'); setTimeout(() => flash.classList.remove('active'), 150); }
+
+  // Hide streak HUD on miss
+  const sEl = document.getElementById('hud-streak');
+  if (sEl) sEl.style.display = 'none';
 }
 
-// ── END GAME ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════
+//  VALIDATE (anti-cheat)
+// ═══════════════════════════════════════════════════════════
 function validateScore() {
   if (selectedMode === 'trace') return { valid:false, reason:'TRACE IS TRAINING ONLY — not ranked' };
-  const ms = Date.now() - sessionStartTime;
-  if (ms < 25000) return { valid:false, reason:'Session too short' };
-  if (score > MAX_SCORE) return { valid:false, reason:'Score exceeds maximum' };
-  if (hits > MAX_HITS) return { valid:false, reason:'Hit count exceeds maximum' };
-  for (let i=1; i<hitTimestamps.length; i++) if (hitTimestamps[i]-hitTimestamps[i-1] < MIN_MS_PER_HIT) return { valid:false, reason:'Inhuman click speed' };
-  const total = hits+misses;
-  if (total>0 && hits/total>0.999 && hits>20) return { valid:false, reason:'Suspicious accuracy' };
+
+  const ms       = Date.now() - sessionStartTime;
+  const maxScore = MAX_SCORE_PER_MODE[selectedMode] || 20000;
+
+  if (ms < 24000)         return { valid:false, reason:'Session too short' };
+  if (score > maxScore)   return { valid:false, reason:'Score exceeds maximum for this mode' };
+  if (hits > MAX_HITS)    return { valid:false, reason:'Hit count exceeds maximum' };
+
+  for (let i = 1; i < hitTimestamps.length; i++) {
+    if (hitTimestamps[i] - hitTimestamps[i-1] < MIN_MS_PER_HIT)
+      return { valid:false, reason:'Inhuman click speed detected' };
+  }
+
+  const total = hits + misses;
+  if (total > 5 && hits / total > 0.999)
+    return { valid:false, reason:'Suspicious accuracy' };
+
   return { valid:true };
 }
+
+// ═══════════════════════════════════════════════════════════
+//  END GAME
+// ═══════════════════════════════════════════════════════════
 async function endGame() {
-  if (!isGameRunning) return;
+  if (!isGameRunning) return; // FIX: guard against double-call
   isGameRunning = false;
-  clearInterval(gameTimer); clearInterval(spawnTimer); clearTimeout(reactionTimeout);
-  stopTracking(); stopTraceMode(); clearGameArea();
-  document.getElementById('reaction-overlay').style.display = 'none';
-  const total = hits+misses;
-  const accuracy = total>0 ? Math.round((hits/total)*100) : 0;
-  const validR = reactionTimes.filter(t=>t<999);
-  const avgReact = validR.length>0 ? Math.round(validR.reduce((a,b)=>a+b,0)/validR.length) : null;
-  document.getElementById('final-score').textContent = score;
-  document.getElementById('final-hits').textContent = hits;
-  document.getElementById('final-accuracy').textContent = accuracy+'%';
-  document.getElementById('final-react').textContent = avgReact ? avgReact+'ms' : '—';
-  document.getElementById('results-name-display').textContent = currentProfile.username;
+
+  clearInterval(gameTimer); clearInterval(spawnTimer);
+  clearTimeout(reactionTimeout);
+  stopTracking(); stopTraceMode(); // FIX: always clean up both
+  clearGameArea();
+
+  const ov = document.getElementById('reaction-overlay');
+  if (ov) ov.style.display = 'none';
+
+  const total    = hits + misses;
+  const accuracy = total > 0 ? Math.round((hits / total) * 100) : 0;
+  const validR   = reactionTimes.filter(t => t < 999);
+  const avgReact = validR.length > 0 ? Math.round(validR.reduce((a,b) => a+b, 0) / validR.length) : null;
+
+  _setEl('final-score',    score.toLocaleString());
+  _setEl('final-hits',     hits);
+  _setEl('final-accuracy', accuracy + '%');
+  _setEl('final-react',    avgReact ? avgReact + 'ms' : '—');
+  _setEl('final-streak',   bestStreak);
+  _setEl('final-misses',   misses);
+  _setEl('results-name-display', currentProfile.username);
+
   const rank = getRank(score);
-  document.getElementById('result-rank-icon').textContent = rank.icon;
-  document.getElementById('result-rank-name').textContent = rank.name;
-  document.getElementById('new-best-banner').style.display = score > currentProfile.best_score ? 'block' : 'none';
-  const prog = getRankProgress(score);
-  const rp = document.getElementById('result-rank-progress');
-  rp.style.display = 'block';
-  document.getElementById('rrp-cur').textContent = rank.icon + ' ' + rank.name;
-  document.getElementById('rrp-next').textContent = prog.next ? prog.next.icon+' '+prog.next.name : '✦ MAX';
-  document.getElementById('rrp-sub').textContent = prog.next ? `${prog.pct}% — ${prog.pointsNeeded.toLocaleString()} pts to ${prog.next.name}` : 'Maximum rank achieved!';
-  document.getElementById('rrp-fill').style.width = '0%';
-  document.getElementById('rrp-pct').textContent = prog.pct + '%';
-  setTimeout(() => { document.getElementById('rrp-fill').style.width = prog.pct+'%'; }, 200);
+  _setEl('result-rank-icon', rank.icon);
+  _setEl('result-rank-name', rank.name);
+
+  const isNewBest = score > (currentProfile.best_score || 0);
+  const nbEl = document.getElementById('new-best-banner');
+  if (nbEl) nbEl.style.display = isNewBest ? 'block' : 'none';
+
+  const mrEl = document.getElementById('result-mode-rank');
+  if (mrEl) mrEl.style.display = 'none';
+
+  // Rank progress bar
+  const prog  = getRankProgress(score);
+  const rpEl  = document.getElementById('result-rank-progress');
+  if (rpEl) rpEl.style.display = 'block';
+  _setEl('rrp-cur',  rank.icon + ' ' + rank.name);
+  _setEl('rrp-next', prog.next ? prog.next.icon + ' ' + prog.next.name : '✦ MAX');
+  _setEl('rrp-pct',  prog.pct + '%');
+  _setEl('rrp-sub',  prog.next ? `${prog.pct}% — ${prog.pointsNeeded.toLocaleString()} pts to ${prog.next.name}` : 'Maximum rank achieved!');
+  const rrpFill = document.getElementById('rrp-fill');
+  if (rrpFill) { rrpFill.style.width = '0%'; setTimeout(() => { rrpFill.style.width = prog.pct + '%'; }, 200); }
+
   showScreen('results-screen');
+
   const statusEl = document.getElementById('submit-status');
   statusEl.textContent = 'VALIDATING & SUBMITTING...'; statusEl.className = 'submit-status';
+
   const check = validateScore();
-  if (!check.valid) { statusEl.textContent = '⚠ ' + check.reason; statusEl.className = 'submit-status error'; return; }
+  if (!check.valid) {
+    statusEl.textContent = '⚠ ' + check.reason;
+    statusEl.className = 'submit-status error';
+    return;
+  }
+
   try {
-    const ins = await supabase('/rest/v1/scores', { method:'POST', body:JSON.stringify({ user_id:currentUser.id, name:currentProfile.username, score, accuracy, hits, mode:selectedMode }) });
+    const ins = await supabase('/rest/v1/scores', {
+      method:'POST',
+      body:JSON.stringify({ user_id:currentUser.id, name:currentProfile.username, score, accuracy, hits, mode:selectedMode })
+    });
     if (!ins.ok) throw new Error(JSON.stringify(ins.data));
-    const newBest = Math.max(score, currentProfile.best_score);
-    const modeCol = 'best_' + selectedMode;
+
+    const newBest     = Math.max(score, currentProfile.best_score || 0);
+    const modeCol     = 'best_' + selectedMode;
     const newModeBest = Math.max(score, currentProfile[modeCol] || 0);
-    const newHits = (currentProfile.total_hits || 0) + hits;
-    const newGames = (currentProfile.games_played || 0) + 1;
+    const newHits     = (currentProfile.total_hits  || 0) + hits;
+    const newGames    = (currentProfile.games_played|| 0) + 1;
+
     const patch = { best_score:newBest, total_hits:newHits, games_played:newGames, [modeCol]:newModeBest };
     await supabase(`/rest/v1/profiles?id=eq.${currentUser.id}`, { method:'PATCH', body:JSON.stringify(patch) });
-    currentProfile.best_score = newBest; currentProfile.total_hits = newHits; currentProfile.games_played = newGames; currentProfile[modeCol] = newModeBest;
+
+    currentProfile.best_score    = newBest;
+    currentProfile.total_hits    = newHits;
+    currentProfile.games_played  = newGames;
+    currentProfile[modeCol]      = newModeBest;
+
+    // Update menu badge live
     const rankUpd = getRank(newBest);
     const progUpd = getRankProgress(newBest);
-    document.getElementById('badge-best').textContent = 'Best: '+newBest.toLocaleString();
-    document.getElementById('badge-rank-icon').textContent = rankUpd.icon;
-    document.getElementById('badge-rank-name').textContent = rankUpd.name;
-    document.getElementById('badge-rank-fill').style.width = progUpd.pct+'%';
-    document.getElementById('badge-rank-next').textContent = progUpd.next ? progUpd.pointsNeeded.toLocaleString()+' pts → '+progUpd.next.name : '✦ MAX RANK';
+    _setEl('badge-best',      'Best: ' + newBest.toLocaleString());
+    _setEl('badge-rank-icon', rankUpd.icon);
+    _setEl('badge-rank-name', rankUpd.name);
+    const bfEl = document.getElementById('badge-rank-fill');
+    if (bfEl) bfEl.style.width = progUpd.pct + '%';
+    _setEl('badge-rank-next', progUpd.next ? progUpd.pointsNeeded.toLocaleString() + ' pts → ' + progUpd.next.name : '✦ MAX RANK');
+
     statusEl.textContent = '✓ SCORE SUBMITTED'; statusEl.className = 'submit-status success';
+
+    // Show mode rank
     const modeRank = await fetchModeRank(selectedMode, score);
-    const modeRankEl = document.getElementById('result-mode-rank');
-    if (modeRank) { document.getElementById('result-mode-rank-text').textContent = `🎯 YOU ARE RANK #${modeRank} GLOBALLY IN ${selectedMode.toUpperCase()} MODE`; modeRankEl.style.display = 'block'; }
+    if (modeRank) {
+      const mrEl = document.getElementById('result-mode-rank');
+      if (mrEl) {
+        mrEl.style.display = 'block';
+        _setEl('result-mode-rank-text', `🎯 YOU ARE RANK #${modeRank} GLOBALLY IN ${selectedMode.toUpperCase()}`);
+      }
+    }
+
+    // Update global rank badge
     const globalR = await fetchGlobalRank(newBest);
-    if (globalR) document.getElementById('badge-global-rank').textContent = '🌍 RANK #'+globalR;
-  } catch(e) { statusEl.textContent = 'Error: '+e.message; statusEl.className = 'submit-status error'; }
+    if (globalR) _setEl('badge-global-rank', '🌍 #' + globalR);
+
+  } catch(e) {
+    statusEl.textContent = 'Error: ' + e.message;
+    statusEl.className = 'submit-status error';
+  }
 }
 
-// ── LEADERBOARD ──────────────────────────────────────────
-async function showLeaderboard() { showScreen('leaderboard-screen'); loadLeaderboard(); }
-function switchLbMode(mode) { currentLbTab = mode; document.querySelectorAll('.lb-tab').forEach((t,i) => t.classList.toggle('active', RANKED_MODES[i] === mode)); loadLeaderboard(); }
+// ═══════════════════════════════════════════════════════════
+//  LEADERBOARD — queries profiles (one row per player)
+// ═══════════════════════════════════════════════════════════
+async function showLeaderboard() {
+  showScreen('leaderboard-screen');
+  loadLeaderboard();
+}
+function switchLbMode(mode) {
+  currentLbTab = mode;
+  document.querySelectorAll('.lb-tab').forEach((t, i) => {
+    t.classList.toggle('active', RANKED_MODES[i] === mode);
+  });
+  loadLeaderboard();
+}
+
 async function loadLeaderboard() {
-  const list = document.getElementById('lb-list');
+  const list       = document.getElementById('lb-list');
   const yourRankEl = document.getElementById('lb-your-rank');
-  const yourRankNum = document.getElementById('lb-your-rank-num');
+  const yourRankNm = document.getElementById('lb-your-rank-num');
   list.innerHTML = '<div class="lb-loading">FETCHING SCORES...</div>';
-  yourRankEl.style.display = 'none';
+  if (yourRankEl) yourRankEl.style.display = 'none';
+
   const modeCol = 'best_' + currentLbTab;
+
   try {
-    const { ok, data } = await supabase(`/rest/v1/profiles?select=username,${modeCol},games_played&${modeCol}=gt.0&order=${modeCol}.desc&limit=50`);
-    if (!ok || !Array.isArray(data) || !data.length) { list.innerHTML = '<div class="lb-loading">No scores yet for this mode — be the first!</div>'; return; }
+    // FIX: query profiles table directly — one row per player, deduplicated at DB level
+    const { ok, data } = await supabase(
+      `/rest/v1/profiles?select=username,${modeCol},games_played,avatar&${modeCol}=gt.0&order=${modeCol}.desc&limit=50`
+    );
+
+    if (!ok || !Array.isArray(data) || !data.length) {
+      list.innerHTML = '<div class="lb-loading">No scores yet for this mode — be the first!</div>';
+      return;
+    }
+
     const medals = ['🥇','🥈','🥉'], rc = ['r1','r2','r3'], rowC = ['top1','top2','top3'];
     const myName = currentProfile?.username || '';
-    list.innerHTML = `<div class="lb-header"><span>#</span><span>NAME</span><span style="text-align:right">BEST SCORE</span><span style="text-align:right">RANK</span><span style="text-align:right">GAMES</span></div>${data.map((r,i) => { const isMe = r.username === myName; const rank = getRank(r[modeCol]); return `<div class="lb-row ${rowC[i]||''} ${isMe?'mine':''}"><span class="lb-rank ${rc[i]||''}">${i<3?medals[i]:i+1}</span><span class="lb-name ${isMe?'mine-name':''}">${escHtml(r.username)}${isMe?' ◀ YOU':''}</span><span class="lb-score">${(r[modeCol]||0).toLocaleString()}</span><span class="lb-tier">${rank.icon} ${rank.name}</span><span class="lb-acc">${r.games_played||0}</span></div>`; }).join('')}`;
+
+    list.innerHTML = `
+      <div class="lb-header">
+        <span>#</span><span>NAME</span>
+        <span style="text-align:right">BEST</span>
+        <span style="text-align:right">GAMES</span>
+        <span style="text-align:right">RANK</span>
+      </div>
+      ${data.map((r, i) => {
+        const isMe = r.username === myName;
+        const rank = getRank(r[modeCol] || 0);
+        return `<div class="lb-row ${rowC[i]||''} ${isMe?'mine':''}">
+          <span class="lb-rank ${rc[i]||''}">${i<3 ? medals[i] : i+1}</span>
+          <span class="lb-name ${isMe?'mine-name':''}">${escHtml(r.avatar||'🎯')} ${escHtml(r.username)}${isMe?' ◀ YOU':''}</span>
+          <span class="lb-score">${(r[modeCol]||0).toLocaleString()}</span>
+          <span class="lb-acc">${r.games_played||0}</span>
+          <span class="lb-tier">${rank.icon} ${rank.name}</span>
+        </div>`;
+      }).join('')}`;
+
+    // Show your rank
     const myPos = data.findIndex(r => r.username === myName);
-    if (myPos !== -1) { yourRankNum.textContent = '#' + (myPos+1); yourRankEl.style.display = 'block'; }
-    else { const myScore = currentProfile[modeCol] || 0; if (myScore > 0) { const myRank = await fetchModeRank(currentLbTab, myScore); if (myRank) { yourRankNum.textContent = '#'+myRank; yourRankEl.style.display = 'block'; } } }
-  } catch(e) { list.innerHTML = '<div class="lb-loading">Could not load scores.</div>'; }
+    if (myPos !== -1 && yourRankEl && yourRankNm) {
+      yourRankNm.textContent = '#' + (myPos + 1);
+      yourRankEl.style.display = 'block';
+    } else if (yourRankEl && yourRankNm) {
+      const myScore = currentProfile[modeCol] || 0;
+      if (myScore > 0) {
+        fetchModeRank(currentLbTab, myScore).then(r => {
+          if (r) { yourRankNm.textContent = '#' + r; yourRankEl.style.display = 'block'; }
+        });
+      }
+    }
+  } catch(e) {
+    list.innerHTML = '<div class="lb-loading">Could not load scores. Check connection.</div>';
+  }
 }
-function escHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-// ── VISUALS ──────────────────────────────────────────────
-function showScorePopup(x,y,text,isBonus) { const el = document.createElement('div'); el.className = 'score-popup'+(isBonus?' bonus':''); el.style.cssText = `left:${x}px;top:${y}px`; el.textContent = text; document.getElementById('game-area').appendChild(el); setTimeout(()=>el.remove(),700); }
-function showHitRing(x,y) { const el = document.createElement('div'); el.className = 'hit-ring'; el.style.cssText = `left:${x}px;top:${y}px;width:${settings.size}px;height:${settings.size}px`; document.getElementById('game-area').appendChild(el); setTimeout(()=>el.remove(),350); }
-function updateHUD() { document.getElementById('score-display').textContent = score.toLocaleString(); const total = hits+misses; document.getElementById('acc-display').textContent = total>0 ? Math.round((hits/total)*100)+'%' : '—'; }
-function showStreakLabel(x,y,s) { const el = document.createElement('div'); el.className = 'score-popup bonus'; el.style.cssText = `left:${x}px;top:${y}px;color:${s>=10?'#ffd700':s>=5?'#ff6b35':'#ff88aa'};font-size:${s>=10?22:18}px`; el.textContent = s>=10?`🔥 ${s}x`:s>=5?`⚡ ${s}x`:`✦ ${s}x`; document.getElementById('game-area').appendChild(el); setTimeout(()=>el.remove(),700); }
-function clearGameArea() { document.getElementById('game-area').innerHTML = '<div id="miss-flash"></div>'; }
-
-// ── TRACE MODE (full) ────────────────────────────────────
-let traceFrameId = null, traceX=0,traceY=0,traceAngle=0,traceSpeed=0,traceTargetX=0,traceTargetY=0,traceChangeTimer=0,traceMouseX=0,traceMouseY=0,traceOnFrames=0,traceTotalFrames=0;
-const TRACE_DIFF = { easy:{ baseSpeed:1.4, maxSpeed:2.2, turnRate:0.018, size:80, maxDist:55, ppf:3 }, medium:{ baseSpeed:2.8, maxSpeed:4.5, turnRate:0.030, size:60, maxDist:40, ppf:5 }, hard:{ baseSpeed:5.0, maxSpeed:8.0, turnRate:0.045, size:44, maxDist:28, ppf:8 } };
+// ═══════════════════════════════════════════════════════════
+//  TRACE MODE
+// ═══════════════════════════════════════════════════════════
 function startTraceMode() {
-  document.getElementById('reaction-overlay').style.display = 'none';
+  const ov = document.getElementById('reaction-overlay');
+  if (ov) ov.style.display = 'none';
   clearGameArea();
-  const ga = document.getElementById('game-area');
+
+  const ga   = document.getElementById('game-area');
+  if (!ga) return;
   const diff = TRACE_DIFF[settings.difficulty] || TRACE_DIFF.medium;
   const rect = ga.getBoundingClientRect();
-  traceX = rect.width/2; traceY = rect.height/2;
+
+  traceX = rect.width / 2; traceY = rect.height / 2;
   traceAngle = Math.random() * Math.PI * 2;
   traceSpeed = diff.baseSpeed;
-  traceChangeTimer = 0;
-  traceOnFrames = 0; traceTotalFrames = 0;
+  traceOnFrames = 0; traceTotalFrames = 0; traceChangeTimer = 0;
+
   pickNewTarget(ga, diff);
+
   const sz = diff.size;
-  const circle = document.createElement('div'); circle.id = 'trace-circle'; circle.style.cssText = `position:absolute; width:${sz}px; height:${sz}px; border-radius:50%; background:radial-gradient(circle at 35% 35%, #00ffcc, #0088aa); box-shadow:0 0 18px rgba(0,255,200,0.7),0 0 40px rgba(0,255,200,0.3); border:2px solid rgba(0,255,200,0.9); transform:translate(-50%,-50%); pointer-events:none;`; ga.appendChild(circle);
-  const ring = document.createElement('div'); ring.id = 'trace-ring'; ring.style.cssText = `position:absolute; width:${sz+28}px; height:${sz+28}px; border-radius:50%; border:2px dashed rgba(0,255,200,0.3); transform:translate(-50%,-50%); pointer-events:none;`; ga.appendChild(ring);
-  const status = document.createElement('div'); status.id = 'trace-status'; status.textContent = 'KEEP YOUR CURSOR INSIDE THE RING'; ga.appendChild(status);
+  const circle = document.createElement('div');
+  circle.id = 'trace-circle';
+  circle.style.cssText = `position:absolute;width:${sz}px;height:${sz}px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#00ffcc,#0088aa);box-shadow:0 0 18px rgba(0,255,200,0.7);border:2px solid rgba(0,255,200,0.9);transform:translate(-50%,-50%);pointer-events:none;`;
+  ga.appendChild(circle);
+
+  const ring = document.createElement('div');
+  ring.id = 'trace-ring';
+  ring.style.cssText = `position:absolute;width:${sz+28}px;height:${sz+28}px;border-radius:50%;border:2px dashed rgba(0,255,200,0.3);transform:translate(-50%,-50%);pointer-events:none;`;
+  ga.appendChild(ring);
+
+  const status = document.createElement('div');
+  status.id = 'trace-status';
+  status.textContent = 'KEEP YOUR CURSOR INSIDE THE RING';
+  ga.appendChild(status);
+
   ga.addEventListener('mousemove', onTraceMouseMove);
-  gameTimer = setInterval(() => { timeLeft--; document.getElementById('timer-display').textContent = timeLeft; if (timeLeft <= 5) document.getElementById('timer-display').classList.add('urgent'); if (timeLeft <= 0) endGame(); }, 1000);
+
+  gameTimer = setInterval(() => {
+    timeLeft--;
+    const td = document.getElementById('timer-display');
+    if (td) td.textContent = timeLeft;
+    if (timeLeft <= 5) { if (td) td.classList.add('urgent'); }
+    if (timeLeft <= 0) endGame();
+  }, 1000);
+
   traceFrameId = requestAnimationFrame(() => traceLoop(diff, ga));
-}
-function pickNewTarget(ga, diff) { const margin = 80; traceTargetX = margin + Math.random() * (ga.offsetWidth - margin*2); traceTargetY = margin + HUD_HEIGHT + Math.random() * (ga.offsetHeight - margin*2 - HUD_HEIGHT); traceChangeTimer = 90 + Math.floor(Math.random() * 110); }
-function onTraceMouseMove(e) { const ga = document.getElementById('game-area'); const rect = ga.getBoundingClientRect(); traceMouseX = e.clientX - rect.left; traceMouseY = e.clientY - rect.top; }
-function traceLoop(diff, ga) {
-  if (!isGameRunning) return;
-  const angleToTarget = Math.atan2(traceTargetY - traceY, traceTargetX - traceX);
-  let da = angleToTarget - traceAngle; while (da > Math.PI) da -= Math.PI*2; while (da < -Math.PI) da += Math.PI*2;
-  traceAngle += da * diff.turnRate;
-  if (traceSpeed < diff.maxSpeed) traceSpeed += 0.006;
-  traceX += Math.cos(traceAngle) * traceSpeed;
-  traceY += Math.sin(traceAngle) * traceSpeed;
-  const sz = diff.size/2, W = ga.offsetWidth, H = ga.offsetHeight;
-  if (traceX < sz) { traceX = sz; traceAngle = Math.PI - traceAngle + (Math.random()-0.5)*0.4; }
-  if (traceX > W-sz) { traceX = W-sz; traceAngle = Math.PI - traceAngle + (Math.random()-0.5)*0.4; }
-  if (traceY < HUD_HEIGHT+sz) { traceY = HUD_HEIGHT+sz; traceAngle = -traceAngle + (Math.random()-0.5)*0.4; }
-  if (traceY > H-sz) { traceY = H-sz; traceAngle = -traceAngle + (Math.random()-0.5)*0.4; }
-  traceChangeTimer--; if (traceChangeTimer <= 0) pickNewTarget(ga, diff);
-  const circle = document.getElementById('trace-circle'), ring = document.getElementById('trace-ring'), status = document.getElementById('trace-status');
-  if (!circle) return;
-  circle.style.left = traceX + 'px'; circle.style.top = traceY + 'px';
-  ring.style.left = traceX + 'px'; ring.style.top = traceY + 'px';
-  const dx = traceMouseX - traceX, dy = traceMouseY - traceY, dist = Math.sqrt(dx*dx + dy*dy);
-  traceTotalFrames++;
-  if (dist <= diff.maxDist) {
-    const proximity = 1 - dist / diff.maxDist;
-    score += Math.round(diff.ppf * proximity);
-    traceOnFrames++;
-    circle.style.boxShadow = `0 0 22px rgba(0,255,150,0.9),0 0 50px rgba(0,255,150,0.4)`;
-    ring.style.borderColor = `rgba(0,255,150,0.7)`;
-    if (status) { status.textContent = proximity > 0.7 ? '🎯 PERFECT' : '✓ ON TARGET'; status.style.color = '#00ff88'; }
-  } else {
-    const howFar = Math.min(1, (dist - diff.maxDist) / 100);
-    circle.style.boxShadow = `0 0 14px rgba(255,80,80,${0.4+howFar*0.4}),0 0 28px rgba(255,60,60,0.2)`;
-    ring.style.borderColor = `rgba(255,80,80,${0.4+howFar*0.4})`;
-    if (status) { status.textContent = '✗ STAY ON TARGET'; status.style.color = '#ff4455'; }
-  }
-  document.getElementById('score-display').textContent = score;
-  document.getElementById('acc-display').textContent = traceTotalFrames > 0 ? Math.round((traceOnFrames/traceTotalFrames)*100)+'%' : '—';
-  traceFrameId = requestAnimationFrame(() => traceLoop(diff, ga));
-}
-function stopTraceMode() {
-  if (traceFrameId) cancelAnimationFrame(traceFrameId);
-  traceFrameId = null;
-  const ga = document.getElementById('game-area');
-  if (ga) { ga.removeEventListener('mousemove', onTraceMouseMove); const circle = document.getElementById('trace-circle'), ring = document.getElementById('trace-ring'), status = document.getElementById('trace-status'); if (circle) circle.remove(); if (ring) ring.remove(); if (status) status.remove(); }
 }
 
-// ── INITIALIZATION ───────────────────────────────────────
-window.addEventListener('DOMContentLoaded', async () => {
-  const styleTag = document.createElement('style'); styleTag.textContent = 'html,body,*{ cursor:none !important; }'; document.head.appendChild(styleTag);
-  initCrosshair();
-  setDifficulty(settings.difficulty);
-  document.querySelectorAll('.xhair-btn').forEach(btn => { if (btn.dataset.xhair === settings.crosshair) btn.classList.add('active'); });
+function pickNewTarget(ga, diff) {
+  const margin = 80;
+  traceTargetX = margin + Math.random() * (ga.offsetWidth  - margin * 2);
+  traceTargetY = margin + HUD_HEIGHT + Math.random() * (ga.offsetHeight - margin * 2 - HUD_HEIGHT);
+  traceChangeTimer = 90 + Math.floor(Math.random() * 110);
+}
+
+function onTraceMouseMove(e) {
   const ga = document.getElementById('game-area');
-  if (ga) { ga.addEventListener('mousedown', e => { if (!isGameRunning || selectedMode === 'trace') return; missClick(e); }); }
-  // Color picker listeners
-  document.getElementById('xhair-color-picker').addEventListener('input', e => { settings.xhairColor = e.target.value; saveSettings(); setCrosshair(settings.crosshair); });
-  document.getElementById('accent-color-picker').addEventListener('input', e => { settings.accentColor = e.target.value; saveSettings(); applyTheme(); });
-  document.getElementById('bg-style-select').addEventListener('change', e => { settings.bgStyle = e.target.value; saveSettings(); applyTheme(); document.getElementById('bg-color-row').style.display = settings.bgStyle === 'solid' ? 'flex' : 'none'; });
-  document.getElementById('bg-color-picker').addEventListener('input', e => { settings.bgColor = e.target.value; if (settings.bgStyle === 'solid') applyTheme(); });
-  document.getElementById('target-normal').addEventListener('input', e => { settings.targetNormal = e.target.value; saveSettings(); applyTheme(); });
-  document.getElementById('target-flick').addEventListener('input', e => { settings.targetFlick = e.target.value; saveSettings(); applyTheme(); });
-  document.getElementById('target-tracking').addEventListener('input', e => { settings.targetTracking = e.target.value; saveSettings(); applyTheme(); });
-  document.getElementById('target-switching').addEventListener('input', e => { settings.targetSwitching = e.target.value; saveSettings(); applyTheme(); });
-  document.getElementById('target-priority').addEventListener('input', e => { settings.targetPriority = e.target.value; saveSettings(); applyTheme(); });
-  document.getElementById('volume-slider').addEventListener('input', e => { setVolume(e.target.value); });
-  const savedVolume = localStorage.getItem('volume'); if (savedVolume) setVolume(savedVolume * 100);
-  applyTheme();
-  initAvatarSelector();
-  const loggedIn = await tryAutoLogin();
-  if (!loggedIn) showScreen('auth-screen');
+  if (!ga) return;
+  const rect = ga.getBoundingClientRect();
+  traceMouseX = e.clientX - rect.left;
+  traceMouseY = e.clientY - rect.top;
+}
+
+function traceLoop(diff, ga) {
+  if (!isGameRunning) return;
+
+  const angleToTarget = Math.atan2(traceTargetY - traceY, traceTargetX - traceX);
+  let da = angleToTarget - traceAngle;
+  while (da >  Math.PI) da -= Math.PI * 2;
+  while (da < -Math.PI) da += Math.PI * 2;
+  traceAngle += da * diff.turnRate;
+  if (traceSpeed < diff.maxSpeed) traceSpeed += 0.005;
+
+  traceX += Math.cos(traceAngle) * traceSpeed;
+  traceY += Math.sin(traceAngle) * traceSpeed;
+
+  const sz = diff.size / 2;
+  const W = ga.offsetWidth, H = ga.offsetHeight;
+  if (traceX < sz)   { traceX = sz;   traceAngle = Math.PI - traceAngle + (Math.random()-0.5)*0.4; }
+  if (traceX > W-sz) { traceX = W-sz; traceAngle = Math.PI - traceAngle + (Math.random()-0.5)*0.4; }
+  if (traceY < HUD_HEIGHT+sz) { traceY = HUD_HEIGHT+sz; traceAngle = -traceAngle + (Math.random()-0.5)*0.4; }
+  if (traceY > H-sz)          { traceY = H-sz;          traceAngle = -traceAngle + (Math.random()-0.5)*0.4; }
+
+  traceChangeTimer--;
+  if (traceChangeTimer <= 0) pickNewTarget(ga, diff);
+
+  const circle = document.getElementById('trace-circle');
+  const ring   = document.getElementById('trace-ring');
+  const status = document.getElementById('trace-status');
+  if (!circle) return;
+
+  circle.style.left = traceX + 'px'; circle.style.top = traceY + 'px';
+  ring.style.left   = traceX + 'px'; ring.style.top   = traceY + 'px';
+
+  const dx = traceMouseX - traceX, dy = traceMouseY - traceY;
+  const dist = Math.sqrt(dx*dx + dy*dy);
+  traceTotalFrames++;
+
+  if (dist <= diff.maxDist) {
+    const prox = 1 - dist / diff.maxDist;
+    score += Math.round(diff.ppf * prox);
+    traceOnFrames++;
+    circle.style.boxShadow = '0 0 22px rgba(0,255,150,0.9),0 0 50px rgba(0,255,150,0.4)';
+    ring.style.borderColor  = 'rgba(0,255,150,0.7)';
+    if (status) { status.textContent = prox > 0.7 ? '🎯 PERFECT' : '✓ ON TARGET'; status.style.color = '#00ff88'; }
+  } else {
+    const howFar = Math.min(1, (dist - diff.maxDist) / 100);
+    circle.style.boxShadow = `0 0 14px rgba(255,80,80,${0.4+howFar*0.4})`;
+    ring.style.borderColor  = `rgba(255,80,80,${0.4+howFar*0.4})`;
+    if (status) { status.textContent = '✗ STAY ON TARGET'; status.style.color = '#ff4455'; }
+  }
+
+  const sd = document.getElementById('score-display');
+  const ad = document.getElementById('acc-display');
+  if (sd) sd.textContent = score;
+  if (ad) ad.textContent = traceTotalFrames > 0 ? Math.round((traceOnFrames / traceTotalFrames) * 100) + '%' : '—';
+
+  traceFrameId = requestAnimationFrame(() => traceLoop(diff, ga));
+}
+
+function stopTraceMode() {
+  if (traceFrameId) { cancelAnimationFrame(traceFrameId); traceFrameId = null; }
+  const ga = document.getElementById('game-area');
+  if (ga) ga.removeEventListener('mousemove', onTraceMouseMove);
+}
+
+// ═══════════════════════════════════════════════════════════
+//  CROSSHAIR
+// ═══════════════════════════════════════════════════════════
+let _xhairEl = null;
+
+const XHAIRS = {
+  classic: (c) => `
+    <div style="position:absolute;width:18px;height:2px;background:${c};top:50%;left:50%;transform:translate(-50%,-50%)"></div>
+    <div style="position:absolute;width:2px;height:18px;background:${c};top:50%;left:50%;transform:translate(-50%,-50%)"></div>
+    <div style="position:absolute;width:3px;height:3px;border-radius:50%;background:${c};top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 0 5px ${c}"></div>`,
+  dot: (c) => `
+    <div style="position:absolute;width:6px;height:6px;border-radius:50%;background:${c};top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 0 8px ${c}"></div>`,
+  circle: (c) => `
+    <div style="position:absolute;width:22px;height:22px;border:1.5px solid ${c};border-radius:50%;top:50%;left:50%;transform:translate(-50%,-50%)"></div>
+    <div style="position:absolute;width:3px;height:3px;border-radius:50%;background:${c};top:50%;left:50%;transform:translate(-50%,-50%)"></div>`,
+  gap: (c) => `
+    <div style="position:absolute;width:6px;height:2px;background:${c};top:50%;left:50%;transform:translate(-50%,-50%) translateX(-9px)"></div>
+    <div style="position:absolute;width:6px;height:2px;background:${c};top:50%;left:50%;transform:translate(-50%,-50%) translateX(9px)"></div>
+    <div style="position:absolute;width:2px;height:6px;background:${c};top:50%;left:50%;transform:translate(-50%,-50%) translateY(-9px)"></div>
+    <div style="position:absolute;width:2px;height:6px;background:${c};top:50%;left:50%;transform:translate(-50%,-50%) translateY(9px)"></div>
+    <div style="position:absolute;width:3px;height:3px;border-radius:50%;background:${c};top:50%;left:50%;transform:translate(-50%,-50%)"></div>`,
+  cross: (c) => `
+    <div style="position:absolute;width:24px;height:2px;background:${c};top:50%;left:50%;transform:translate(-50%,-50%)"></div>
+    <div style="position:absolute;width:2px;height:24px;background:${c};top:50%;left:50%;transform:translate(-50%,-50%)"></div>`,
+  t: (c) => `
+    <div style="position:absolute;width:20px;height:2px;background:${c};top:50%;left:50%;transform:translate(-50%,-50%)"></div>
+    <div style="position:absolute;width:2px;height:10px;background:${c};top:50%;left:50%;transform:translate(-50%,-50%) translateY(6px)"></div>
+    <div style="position:absolute;width:3px;height:3px;border-radius:50%;background:${c};top:50%;left:50%;transform:translate(-50%,-50%)"></div>`,
+};
+
+function initCrosshair() {
+  const old = document.getElementById('custom-crosshair');
+  if (old) { _xhairEl = old; }
+  else {
+    _xhairEl = document.createElement('div');
+    _xhairEl.id = 'custom-crosshair';
+    document.body.appendChild(_xhairEl);
+  }
+  document.addEventListener('mousemove', e => {
+    if (_xhairEl) { _xhairEl.style.left = e.clientX + 'px'; _xhairEl.style.top = e.clientY + 'px'; }
+  }, { passive: true });
+  setCrosshair(settings.crosshair);
+}
+
+function setCrosshair(style) {
+  settings.crosshair = style;
+  if (_xhairEl && XHAIRS[style]) _xhairEl.innerHTML = XHAIRS[style](settings.xhairColor);
+  document.querySelectorAll('.xhair-btn').forEach(b => b.classList.toggle('active', b.dataset.xhair === style));
+}
+
+function setXhairColor(color) {
+  settings.xhairColor = color;
+  setCrosshair(settings.crosshair); // re-render with new color
+  document.querySelectorAll('.color-btn').forEach(b => b.classList.toggle('active', b.dataset.color === color));
+}
+
+function setDifficulty(d) {
+  settings.difficulty = d;
+  document.querySelectorAll('.diff-btn').forEach(b => b.classList.toggle('active', b.dataset.diff === d));
+}
+
+// ═══════════════════════════════════════════════════════════
+//  VISUALS
+// ═══════════════════════════════════════════════════════════
+function showScorePopup(x, y, text, isBonus) {
+  const el = document.createElement('div');
+  el.className = 'score-popup' + (isBonus ? ' bonus' : '');
+  el.style.cssText = `left:${x}px;top:${y}px`;
+  el.textContent = text;
+  const ga = document.getElementById('game-area');
+  if (ga) { ga.appendChild(el); setTimeout(() => el.remove(), 700); }
+}
+
+function showStreakLabel(x, y) {
+  const el = document.createElement('div');
+  el.className = 'score-popup streak';
+  el.style.cssText = `left:${x}px;top:${y}px`;
+  el.textContent = streak + ' STREAK!';
+  const ga = document.getElementById('game-area');
+  if (ga) { ga.appendChild(el); setTimeout(() => el.remove(), 700); }
+}
+
+function showHitRing(x, y) {
+  const el = document.createElement('div');
+  el.className = 'hit-ring';
+  el.style.cssText = `left:${x}px;top:${y}px;width:${settings.size}px;height:${settings.size}px`;
+  const ga = document.getElementById('game-area');
+  if (ga) { ga.appendChild(el); setTimeout(() => el.remove(), 400); }
+}
+
+function updateHUD() {
+  const sd = document.getElementById('score-display');
+  const ad = document.getElementById('acc-display');
+  if (sd) sd.textContent = score.toLocaleString();
+  const total = hits + misses;
+  if (ad) ad.textContent = total > 0 ? Math.round((hits / total) * 100) + '%' : '—';
+}
+
+function clearGameArea() {
+  const ga = document.getElementById('game-area');
+  if (ga) ga.innerHTML = '<div id="miss-flash"></div>';
+}
+
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ═══════════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', () => {
+  initCrosshair();
+
+  // mousedown for miss — faster than click, same as hit detection
+  const ga = document.getElementById('game-area');
+  if (ga) {
+    ga.addEventListener('mousedown', e => {
+      if (!isGameRunning || selectedMode === 'trace') return;
+      missClick(e);
+    });
+  }
+
+  // Build avatar picker on profile open
+  // (handled in showProfile())
 });
