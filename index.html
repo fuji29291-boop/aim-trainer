@@ -1,203 +1,675 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
-  <title>AimLab | Precision Training</title>
-  <link rel="stylesheet" href="style.css"/>
-  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&family=Exo+2:wght@400;700;900&display=swap" rel="stylesheet">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>AimLab Pro | Precision Training System</title>
+    <!-- Google Fonts & Font Awesome -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: radial-gradient(circle at 20% 30%, #0b0e1a, #03050b);
+            font-family: 'Inter', sans-serif;
+            color: #eef2ff;
+            line-height: 1.5;
+            padding: 24px 32px;
+            min-height: 100vh;
+        }
+
+        /* custom scroll */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #141a2c;
+            border-radius: 8px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #3b4b6e;
+            border-radius: 8px;
+        }
+
+        .dashboard {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        /* glass card style */
+        .glass-card {
+            background: rgba(18, 24, 40, 0.65);
+            backdrop-filter: blur(12px);
+            border-radius: 32px;
+            border: 1px solid rgba(72, 187, 255, 0.2);
+            box-shadow: 0 20px 35px -12px rgba(0, 0, 0, 0.4);
+            transition: all 0.2s ease;
+        }
+
+        button, .mode-btn, .action-btn {
+            cursor: pointer;
+            transition: 0.2s;
+            font-weight: 500;
+        }
+
+        /* header */
+        .top-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 32px;
+            background: rgba(8, 12, 22, 0.7);
+            backdrop-filter: blur(12px);
+            border-radius: 60px;
+            padding: 12px 28px;
+            border: 1px solid rgba(0, 180, 255, 0.25);
+        }
+        .logo-area h1 {
+            font-size: 1.7rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #fff, #5bc0ff);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            letter-spacing: -0.3px;
+        }
+        .logo-area p {
+            font-size: 0.75rem;
+            color: #8e9bbe;
+            letter-spacing: 1px;
+        }
+        .auth-buttons {
+            display: flex;
+            gap: 18px;
+        }
+        .auth-btn {
+            background: transparent;
+            border: 1px solid #2f3b66;
+            padding: 8px 20px;
+            border-radius: 40px;
+            font-weight: 600;
+            color: #b9d0ff;
+            transition: 0.2s;
+        }
+        .auth-btn:hover {
+            background: #1e2a4a;
+            border-color: #3e7bff;
+            color: white;
+        }
+
+        /* main grid 3 columns */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr 1.1fr 1fr;
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+
+        /* left column styles */
+        .rank-card {
+            padding: 22px 20px;
+            margin-bottom: 24px;
+        }
+        .rank-title {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #98aeeb;
+        }
+        .rank-badge {
+            font-size: 2rem;
+            font-weight: 800;
+            margin: 8px 0 4px;
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+        }
+        .rank-value {
+            font-size: 2.2rem;
+            background: linear-gradient(135deg, #ddddff, #5faaff);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        .next-rank-info {
+            font-size: 0.85rem;
+            background: #0f1424;
+            padding: 8px 12px;
+            border-radius: 40px;
+            display: inline-block;
+            margin: 12px 0;
+        }
+        .progress-bar {
+            background: #1e243e;
+            border-radius: 40px;
+            height: 8px;
+            overflow: hidden;
+            margin: 16px 0;
+        }
+        .progress-fill {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6, #a855f7);
+            border-radius: 40px;
+        }
+        .stats-row {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+            background: #0c1122cc;
+            padding: 12px;
+            border-radius: 24px;
+        }
+        .stat-item {
+            text-align: center;
+        }
+        .stat-number {
+            font-size: 1.7rem;
+            font-weight: 800;
+        }
+        .best-scores {
+            margin-top: 24px;
+        }
+        .best-scores h4, .section-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-bottom: 14px;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .mode-score-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #1e2746;
+        }
+        .back-menu-btn {
+            margin-top: 20px;
+            background: #1f2a44;
+            border: none;
+            padding: 8px;
+            border-radius: 28px;
+            color: white;
+            width: 100%;
+            font-weight: 500;
+        }
+
+        /* middle column */
+        .mode-selector {
+            padding: 24px;
+        }
+        .profile-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            background: #0a1022;
+            padding: 10px 16px;
+            border-radius: 50px;
+            margin-bottom: 28px;
+        }
+        .view-profile {
+            font-weight: 600;
+            color: #80c0ff;
+        }
+        .modes-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 14px;
+            margin: 28px 0;
+        }
+        .mode-btn {
+            background: #111827cc;
+            border: 1px solid #2d3a60;
+            padding: 14px 8px;
+            border-radius: 28px;
+            text-align: center;
+            font-weight: 700;
+            transition: 0.2s;
+        }
+        .mode-btn i {
+            margin-right: 8px;
+            font-size: 1rem;
+        }
+        .mode-btn.active {
+            background: #2b3b6e;
+            border-color: #3e8eff;
+            box-shadow: 0 0 10px rgba(62, 142, 255, 0.3);
+        }
+        .action-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 14px;
+            margin-top: 20px;
+        }
+        .primary-btn {
+            background: linear-gradient(95deg, #2563eb, #4f46e5);
+            border: none;
+            padding: 14px 0;
+            border-radius: 60px;
+            font-weight: 700;
+            flex: 1;
+            color: white;
+            font-size: 1rem;
+        }
+        .secondary-btn {
+            background: #1e293b;
+            border: 1px solid #3b4b6e;
+            flex: 1;
+            border-radius: 60px;
+            font-weight: 600;
+        }
+
+        /* right column */
+        .leaderboard-card, .round-card {
+            padding: 20px;
+            margin-bottom: 24px;
+        }
+        .tabs {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #1f2a46;
+            padding-bottom: 12px;
+        }
+        .tab-btn {
+            background: none;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 30px;
+            color: #9bb4e0;
+            font-weight: 600;
+        }
+        .tab-btn.active-tab {
+            background: #2b3f77;
+            color: white;
+        }
+        .leaderboard-list {
+            margin-top: 12px;
+            max-height: 240px;
+            overflow-y: auto;
+        }
+        .leaderboard-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #19213c;
+        }
+        .loading-text {
+            text-align: center;
+            color: #7e8db0;
+            padding: 20px;
+        }
+        .round-stats {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin: 20px 0;
+        }
+        .round-stat {
+            background: #0d1428;
+            border-radius: 28px;
+            padding: 12px;
+            text-align: center;
+            flex: 1;
+        }
+        .round-actions {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+        }
+
+        /* bottom row for extra back btns */
+        .footer-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 20px;
+            margin-top: 16px;
+        }
+
+        @media (max-width: 1100px) {
+            body { padding: 20px; }
+            .main-grid { grid-template-columns: 1fr; gap: 24px; }
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            filter: brightness(1.05);
+        }
+        .mode-btn:hover {
+            background: #1f2c50;
+        }
+        i {
+            color: #6c9eff;
+        }
+    </style>
 </head>
 <body>
+<div class="dashboard">
+    <!-- header with LOGIN | REGISTER and brand -->
+    <div class="top-bar">
+        <div class="logo-area">
+            <h1>PRECISION TRAINING SYSTEM</h1>
+            <p>AIMLAB // next-gen aim trainer</p>
+        </div>
+        <div class="auth-buttons">
+            <button class="auth-btn" id="loginMockBtn"><i class="fas fa-sign-in-alt"></i> LOGIN</button>
+            <button class="auth-btn" id="registerMockBtn"><i class="fas fa-user-plus"></i> REGISTER</button>
+        </div>
+    </div>
 
-<!-- AUTH SCREEN -->
-<div id="auth-screen" class="screen active">
-  <div class="scanlines"></div>
-  <div class="auth-container">
-    <div class="logo-wrap">
-      <div class="logo-sub">PRECISION TRAINING SYSTEM</div>
-      <h1 class="logo" id="logo-text">AIMLAB</h1>
-      <div class="logo-line"></div>
+    <div class="main-grid">
+        <!-- LEFT COLUMN: rank, stats, best scores -->
+        <div class="left-col">
+            <div class="glass-card rank-card">
+                <div class="rank-title"><i class="fas fa-chart-line"></i> UNRANKED · SEASON 1</div>
+                <div class="rank-badge"><span class="rank-value">IRON 0</span> <span style="font-size: 1rem;">/ 2,000 BRONZE</span></div>
+                <div class="next-rank-info"><i class="fas fa-arrow-up"></i> 2,000 points to next rank</div>
+                <div class="progress-bar"><div class="progress-fill" id="rankProgressFill" style="width: 0%;"></div></div>
+                <div class="stats-row">
+                    <div class="stat-item"><div class="stat-number" id="totalHits">0</div><span>TOTAL HITS</span></div>
+                    <div class="stat-item"><div class="stat-number" id="bestScoreOverall">0</div><span>BEST SCORE</span></div>
+                </div>
+                <div class="best-scores">
+                    <h4><i class="fas fa-trophy"></i> BEST SCORES BY MODE</h4>
+                    <div id="bestScoresList">
+                        <div class="mode-score-row"><span><i class="fas fa-crosshairs"></i> STATIC</span><span id="bestStatic">0</span></div>
+                        <div class="mode-score-row"><span><i class="fas fa-bolt"></i> FLICK</span><span id="bestFlick">0</span></div>
+                        <div class="mode-score-row"><span><i class="fas fa-sync-alt"></i> TRACKING</span><span id="bestTracking">0</span></div>
+                        <div class="mode-score-row"><span><i class="fas fa-exchange-alt"></i> SWITCHING</span><span id="bestSwitching">0</span></div>
+                        <div class="mode-score-row"><span><i class="fas fa-hourglass-half"></i> REACTION</span><span id="bestReaction">0</span></div>
+                        <div class="mode-score-row"><span><i class="fas fa-chart-simple"></i> TRACE</span><span id="bestTrace">0</span></div>
+                    </div>
+                </div>
+                <button class="back-menu-btn" id="backToMenuBtn"><i class="fas fa-arrow-left"></i> BACK TO MENU</button>
+            </div>
+        </div>
+
+        <!-- MIDDLE COLUMN: modes & primary actions -->
+        <div class="middle-col">
+            <div class="glass-card mode-selector">
+                <div class="profile-row">
+                    <span class="view-profile"><i class="fas fa-user-circle"></i> VIEW PROFILE</span>
+                    <span><i class="fas fa-arrow-right"></i> SELECT MODE</span>
+                </div>
+                <div class="modes-grid" id="modesGrid">
+                    <div class="mode-btn" data-mode="STATIC"><i class="fas fa-dot-circle"></i> STATIC</div>
+                    <div class="mode-btn" data-mode="FLICK"><i class="fas fa-bolt"></i> FLICK</div>
+                    <div class="mode-btn" data-mode="TRACKING"><i class="fas fa-chart-line"></i> TRACKING</div>
+                    <div class="mode-btn" data-mode="SWITCHING"><i class="fas fa-random"></i> SWITCHING</div>
+                    <div class="mode-btn" data-mode="REACTION"><i class="fas fa-stopwatch"></i> REACTION</div>
+                    <div class="mode-btn" data-mode="TRACE"><i class="fas fa-draw-polygon"></i> TRACE</div>
+                </div>
+                <div class="action-buttons">
+                    <button class="primary-btn" id="startTrainingBtn"><i class="fas fa-play"></i> START TRAINING</button>
+                    <button class="secondary-btn" id="leaderboardNavBtn"><i class="fas fa-list-ol"></i> LEADERBOARD</button>
+                    <button class="secondary-btn" id="profileBtn"><i class="fas fa-id-card"></i> PROFILE</button>
+                    <button class="secondary-btn" id="logoutBtn"><i class="fas fa-sign-out-alt"></i> LOGOUT</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT COLUMN: leaderboard & round complete panel -->
+        <div class="right-col">
+            <div class="glass-card leaderboard-card" id="leaderboardPanel">
+                <h4><i class="fas fa-globe"></i> GLOBAL LEADERBOARD</h4>
+                <div class="tabs" id="leaderboardTabs">
+                    <button class="tab-btn active-tab" data-lb="STATIC">STATIC</button>
+                    <button class="tab-btn" data-lb="FLICK">FLICK</button>
+                    <button class="tab-btn" data-lb="TRACKING">TRACKING</button>
+                    <button class="tab-btn" data-lb="SWITCHING">SWITCHING</button>
+                    <button class="tab-btn" data-lb="REACTION">REACTION</button>
+                </div>
+                <div id="leaderboardContent" class="leaderboard-list">
+                    <div class="loading-text"><i class="fas fa-spinner fa-pulse"></i> Loading...</div>
+                </div>
+                <button class="back-menu-btn" style="margin-top: 20px;" id="leaderboardBackBtn"><i class="fas fa-chevron-left"></i> BACK</button>
+            </div>
+
+            <!-- ROUND COMPLETE CARD -->
+            <div class="glass-card round-card" id="roundCompleteCard">
+                <h3><i class="fas fa-check-circle"></i> ROUND COMPLETE</h3>
+                <div class="round-stats">
+                    <div class="round-stat"><span>SCORE</span><br><span id="roundScore" style="font-size: 2rem; font-weight:800;">0</span><br><span id="roundModeLabel">STATIC</span></div>
+                    <div class="round-stat"><span>ACCURACY%</span><br><span id="roundAccuracy" style="font-size: 1.8rem;">—</span>%</div>
+                    <div class="round-stat"><span>HITS</span><br><span id="roundHits">0</span></div>
+                    <div class="round-stat"><span>AVG REACT</span><br><span id="roundReaction">—</span> ms</div>
+                </div>
+                <div class="round-actions">
+                    <button class="secondary-btn" id="playAgainBtn"><i class="fas fa-redo-alt"></i> PLAY AGAIN</button>
+                    <button class="secondary-btn" id="leaderboardMenuBtn"><i class="fas fa-chart-simple"></i> LEADERBOARD MENU</button>
+                </div>
+            </div>
+        </div>
     </div>
-    <div class="auth-tabs">
-      <button class="auth-tab active" onclick="switchTab('login')">LOGIN</button>
-      <button class="auth-tab" onclick="switchTab('register')">REGISTER</button>
+    <div class="footer-actions">
+        <!-- extra consistency: just for design -->
     </div>
-    <div id="tab-login" class="auth-form">
-      <input type="email" id="login-email" placeholder="Email" autocomplete="email"/>
-      <input type="password" id="login-password" placeholder="Password" autocomplete="current-password"/>
-      <div id="login-error" class="form-error"></div>
-      <button class="btn-primary" onclick="login()"><span>LOGIN</span><div class="btn-glow"></div></button>
-    </div>
-    <div id="tab-register" class="auth-form" style="display:none">
-      <input type="text" id="reg-username" placeholder="Username (shown on leaderboard)" maxlength="16" autocomplete="off"/>
-      <input type="email" id="reg-email" placeholder="Email" autocomplete="email"/>
-      <input type="password" id="reg-password" placeholder="Password (min 6 chars)" autocomplete="new-password"/>
-      <div id="register-error" class="form-error"></div>
-      <button class="btn-primary" onclick="register()"><span>CREATE ACCOUNT</span><div class="btn-glow"></div></button>
-    </div>
-  </div>
 </div>
 
-<!-- MENU SCREEN -->
-<div id="menu-screen" class="screen">
-  <div class="scanlines"></div>
-  <div class="menu-container">
-    <div class="logo-wrap">
-      <div class="logo-sub">PRECISION TRAINING SYSTEM</div>
-      <h1 class="logo" id="logo-text-menu">AIMLAB</h1>
-      <div class="logo-line"></div>
-    </div>
-    <!-- Player badge with avatar -->
-    <div id="player-badge" class="player-badge" onclick="showProfile()" title="View Profile">
-      <div id="badge-avatar" class="badge-avatar">🎯</div>
-      <div class="badge-info">
-        <div class="badge-top-row">
-          <div id="badge-username" class="badge-username">—</div>
-          <div id="badge-global-rank" class="badge-global-rank">—</div>
-        </div>
-        <div id="badge-rank-name" class="badge-rank-name">Unranked</div>
-        <div class="rank-bar-wrap">
-          <div class="rank-bar-track"><div class="rank-bar-fill" id="badge-rank-fill" style="width:0%"></div></div>
-          <div class="rank-bar-label" id="badge-rank-next">— to next rank</div>
-        </div>
-      </div>
-      <div class="badge-right">
-        <div id="badge-best" class="badge-best">Best: 0</div>
-        <div class="badge-hint">VIEW PROFILE →</div>
-      </div>
-    </div>
-    <!-- Mode select -->
-    <div class="mode-select">
-      <div class="mode-label">SELECT MODE</div>
-      <div class="mode-buttons">
-        <button class="mode-btn active" onclick="selectMode('static')" id="mode-static"><span class="mode-icon">⊕</span><span class="mode-name">STATIC</span><span class="mode-desc">Classic clicking</span></button>
-        <button class="mode-btn" onclick="selectMode('flick')" id="mode-flick"><span class="mode-icon">⚡</span><span class="mode-name">FLICK</span><span class="mode-desc">React fast</span></button>
-        <button class="mode-btn" onclick="selectMode('tracking')" id="mode-tracking"><span class="mode-icon">◎</span><span class="mode-name">TRACKING</span><span class="mode-desc">Moving targets</span></button>
-        <button class="mode-btn" onclick="selectMode('switching')" id="mode-switching"><span class="mode-icon">⁂</span><span class="mode-name">SWITCHING</span><span class="mode-desc">Multi-target</span></button>
-        <button class="mode-btn" onclick="selectMode('reaction')" id="mode-reaction"><span class="mode-icon">◈</span><span class="mode-name">REACTION</span><span class="mode-desc">Pure speed</span></button>
-        <button class="mode-btn" onclick="selectMode('trace')" id="mode-trace"><span class="mode-icon">〰</span><span class="mode-name">TRACE</span><span class="mode-desc">Follow & track</span></button>
-      </div>
-    </div>
-    <!-- Settings panel with tabs -->
-    <div class="settings-panel">
-      <div class="settings-title" onclick="toggleSettings()">⚙ CUSTOMIZE <span id="settings-arrow">▼</span></div>
-      <div id="settings-body" class="settings-body" style="display:none">
-        <div class="settings-tabs">
-          <button class="settings-tab active" data-tab="game" onclick="switchSettingsTab('game')">GAME</button>
-          <button class="settings-tab" data-tab="appearance" onclick="switchSettingsTab('appearance')">APPEARANCE</button>
-          <button class="settings-tab" data-tab="profile" onclick="switchSettingsTab('profile')">PROFILE</button>
-        </div>
-        <!-- Game tab -->
-        <div id="settings-game" class="settings-tab-content active">
-          <div class="setting-row"><label>Crosshair Style</label><div class="xhair-row">
-            <button class="xhair-btn" data-xhair="classic" onclick="setCrosshair('classic')">Classic</button>
-            <button class="xhair-btn" data-xhair="dot" onclick="setCrosshair('dot')">Dot</button>
-            <button class="xhair-btn" data-xhair="circle" onclick="setCrosshair('circle')">Circle</button>
-            <button class="xhair-btn" data-xhair="gap" onclick="setCrosshair('gap')">Gap</button>
-            <button class="xhair-btn" data-xhair="cross" onclick="setCrosshair('cross')">Cross</button>
-            <button class="xhair-btn" data-xhair="t" onclick="setCrosshair('t')">T-Shape</button>
-          </div></div>
-          <div class="setting-row"><label>Crosshair Color</label><input type="color" id="xhair-color-picker" value="#00f5ff"></div>
-          <div class="setting-row"><label>Trace Difficulty</label><div class="diff-row">
-            <button class="diff-btn" data-diff="easy" onclick="setDifficulty('easy')">Easy</button>
-            <button class="diff-btn active" data-diff="medium" onclick="setDifficulty('medium')">Medium</button>
-            <button class="diff-btn" data-diff="hard" onclick="setDifficulty('hard')">Hard</button>
-          </div></div>
-          <div class="setting-row"><label>Sound Volume <span id="volume-val">100</span>%</label><input type="range" id="volume-slider" min="0" max="100" value="100"></div>
-        </div>
-        <!-- Appearance tab -->
-        <div id="settings-appearance" class="settings-tab-content">
-          <div class="setting-row"><label>UI Accent Color</label><input type="color" id="accent-color-picker" value="#00f5ff"></div>
-          <div class="setting-row"><label>Background Style</label><select id="bg-style-select"><option value="dark">Dark Default</option><option value="gradient">Gradient</option><option value="solid">Solid Color</option></select></div>
-          <div class="setting-row" id="bg-color-row" style="display:none"><label>Background Color</label><input type="color" id="bg-color-picker" value="#080810"></div>
-          <div class="setting-row"><label>Target Colors</label><div class="target-color-grid">
-            <div><span>Normal:</span> <input type="color" id="target-normal" value="#ff4d6d"></div>
-            <div><span>Flick:</span> <input type="color" id="target-flick" value="#ffdd00"></div>
-            <div><span>Tracking:</span> <input type="color" id="target-tracking" value="#00ffcc"></div>
-            <div><span>Switching:</span> <input type="color" id="target-switching" value="#bf7fff"></div>
-            <div><span>Priority:</span> <input type="color" id="target-priority" value="#ff6600"></div>
-          </div></div>
-        </div>
-        <!-- Profile tab -->
-        <div id="settings-profile" class="settings-tab-content">
-          <div class="setting-row"><label>Your Avatar</label><div class="avatar-selector" id="avatar-selector"></div></div>
-          <div class="setting-row"><label>Display Name</label><input type="text" id="profile-username-display" readonly style="background:#1a1a35; color:#fff;"></div>
-          <button class="btn-primary" onclick="saveProfileChanges()" style="margin-top:10px"><span>SAVE PROFILE</span></button>
-        </div>
-      </div>
-    </div>
-    <button class="btn-primary" onclick="startGame()"><span>START TRAINING</span><div class="btn-glow"></div></button>
-    <div class="menu-bottom">
-      <button class="btn-ghost" onclick="showLeaderboard()">🏆 LEADERBOARD</button>
-      <button class="btn-ghost" onclick="showProfile()">👤 PROFILE</button>
-      <button class="btn-ghost" onclick="logout()">LOGOUT</button>
-    </div>
-  </div>
-</div>
-
-<!-- PROFILE SCREEN (with avatar) -->
-<div id="profile-screen" class="screen">
-  <div class="scanlines"></div>
-  <div class="profile-container">
-    <div class="profile-header"><div id="prof-avatar" class="prof-avatar">🎯</div><div class="prof-header-info"><div id="prof-username" class="prof-username">—</div><div id="prof-rank-name" class="prof-rank-name">UNRANKED</div><div id="prof-global" class="prof-global">GLOBAL RANK —</div></div></div>
-    <div class="prof-progress-block"><div class="prof-progress-top"><span id="prof-cur-rank">IRON</span><span id="prof-progress-label">0 / 2,000</span><span id="prof-next-rank">BRONZE</span></div><div class="prof-progress-track"><div class="prof-progress-fill" id="prof-progress-fill" style="width:0%"></div></div><div id="prof-progress-sub" class="prof-progress-sub">2,000 points to next rank</div></div>
-    <div class="prof-stats-row"><div class="prof-stat"><div class="prof-stat-val" id="prof-games">0</div><div class="prof-stat-lbl">GAMES</div></div><div class="prof-stat"><div class="prof-stat-val" id="prof-total-hits">0</div><div class="prof-stat-lbl">TOTAL HITS</div></div><div class="prof-stat"><div class="prof-stat-val" id="prof-best">0</div><div class="prof-stat-lbl">BEST SCORE</div></div></div>
-    <div class="prof-mode-bests"><div class="prof-section-title">BEST SCORES BY MODE</div><div class="prof-mode-grid">
-      <div class="prof-mode-row"><span class="pmr-icon">⊕</span><span class="pmr-name">STATIC</span><span class="pmr-score" id="prof-best-static">0</span><span class="pmr-rank" id="prof-rank-static">—</span></div>
-      <div class="prof-mode-row"><span class="pmr-icon">⚡</span><span class="pmr-name">FLICK</span><span class="pmr-score" id="prof-best-flick">0</span><span class="pmr-rank" id="prof-rank-flick">—</span></div>
-      <div class="prof-mode-row"><span class="pmr-icon">◎</span><span class="pmr-name">TRACKING</span><span class="pmr-score" id="prof-best-tracking">0</span><span class="pmr-rank" id="prof-rank-tracking">—</span></div>
-      <div class="prof-mode-row"><span class="pmr-icon">⁂</span><span class="pmr-name">SWITCHING</span><span class="pmr-score" id="prof-best-switching">0</span><span class="pmr-rank" id="prof-rank-switching">—</span></div>
-      <div class="prof-mode-row"><span class="pmr-icon">◈</span><span class="pmr-name">REACTION</span><span class="pmr-score" id="prof-best-reaction">0</span><span class="pmr-rank" id="prof-rank-reaction">—</span></div>
-      <div class="prof-mode-row"><span class="pmr-icon">〰</span><span class="pmr-name">TRACE</span><span class="pmr-score" id="prof-best-trace" style="color:var(--muted)">—</span><span class="pmr-rank" style="color:var(--muted);font-size:10px;">TRAINING ONLY</span></div>
-    </div></div>
-    <button class="btn-ghost" onclick="showScreen('menu-screen')" style="margin-top:8px">← BACK TO MENU</button>
-  </div>
-</div>
-
-<!-- LEADERBOARD SCREEN -->
-<div id="leaderboard-screen" class="screen">
-  <div class="scanlines"></div>
-  <div class="lb-container">
-    <h2 class="lb-title">GLOBAL LEADERBOARD</h2>
-    <div class="lb-mode-tabs">
-      <button class="lb-tab active" onclick="switchLbMode('static')">STATIC</button>
-      <button class="lb-tab" onclick="switchLbMode('flick')">FLICK</button>
-      <button class="lb-tab" onclick="switchLbMode('tracking')">TRACKING</button>
-      <button class="lb-tab" onclick="switchLbMode('switching')">SWITCHING</button>
-      <button class="lb-tab" onclick="switchLbMode('reaction')">REACTION</button>
-    </div>
-    <div id="lb-your-rank" class="lb-your-rank" style="display:none">YOUR RANK IN THIS MODE: <span id="lb-your-rank-num">#—</span></div>
-    <div id="lb-list"><div class="lb-loading">Loading...</div></div>
-    <button class="btn-ghost" onclick="showScreen('menu-screen')">← BACK</button>
-  </div>
-</div>
-
-<!-- GAME SCREEN (with QUIT button) -->
-<div id="game-screen" class="screen">
-  <div id="hud">
-    <div class="hud-item"><span class="hud-label">SCORE</span><span class="hud-value" id="score-display">0</span></div>
-    <div class="hud-item hud-center"><span class="hud-value timer-val" id="timer-display">30</span><span class="hud-label" id="mode-label-hud">STATIC</span></div>
-    <div class="hud-item"><span class="hud-label">ACCURACY</span><span class="hud-value" id="acc-display">—</span></div>
-    <button id="quit-btn" class="quit-btn" onclick="quitGame()">✖ QUIT</button>
-  </div>
-  <div id="reaction-overlay" style="display:none"><div id="reaction-msg" class="reaction-msg">WAIT FOR GREEN...</div><div id="reaction-time" class="reaction-time"></div><div id="reaction-scores" class="reaction-scores"></div></div>
-  <div id="game-area"><div id="miss-flash"></div></div>
-</div>
-
-<!-- RESULTS SCREEN -->
-<div id="results-screen" class="screen">
-  <div class="scanlines"></div>
-  <div class="results-container">
-    <div class="results-header"><div class="result-rank-badge"><div id="result-rank-icon" class="result-rank-icon">—</div><div id="result-rank-name" class="result-rank-name">—</div></div><h2>ROUND COMPLETE</h2><p id="results-name-display"></p></div>
-    <div class="result-grid"><div class="result-card"><span class="rc-label">SCORE</span><span class="rc-value" id="final-score">0</span></div><div class="result-card"><span class="rc-label">ACCURACY</span><span class="rc-value" id="final-accuracy">0%</span></div><div class="result-card"><span class="rc-label">HITS</span><span class="rc-value" id="final-hits">0</span></div><div class="result-card"><span class="rc-label">AVG REACT</span><span class="rc-value" id="final-react">—</span></div></div>
-    <div id="result-mode-rank" class="result-mode-rank" style="display:none"><span id="result-mode-rank-text"></span></div>
-    <div id="new-best-banner" class="new-best-banner" style="display:none">🏆 NEW PERSONAL BEST!</div>
-    <div class="result-rank-progress" id="result-rank-progress" style="display:none"><div class="rrp-labels"><span id="rrp-cur">—</span><span id="rrp-pct">0%</span><span id="rrp-next">—</span></div><div class="rrp-track"><div class="rrp-fill" id="rrp-fill"></div></div><div id="rrp-sub" class="rrp-sub"></div></div>
-    <div id="submit-status" class="submit-status"></div>
-    <div class="result-buttons"><button class="btn-primary" onclick="startGame()"><span>PLAY AGAIN</span><div class="btn-glow"></div></button><button class="btn-ghost" onclick="showLeaderboard()">🏆 LEADERBOARD</button><button class="btn-ghost" onclick="showScreen('menu-screen')">MENU</button></div>
-  </div>
-</div>
-
-<script src="script.js"></script>
+<script>
+    // ---------- STATE ----------
+    let currentMode = "STATIC";
+    let userStats = {
+        totalHits: 0,
+        bestScoreOverall: 0,
+        bestScores: {
+            STATIC: 0, FLICK: 0, TRACKING: 0, SWITCHING: 0, REACTION: 0, TRACE: 0
+        },
+        rankPoints: 0,
+    };
+    
+    // dummy leaderboard data
+    const leaderboardData = {
+        STATIC: [{name:"ShroudAce", score:9850},{name:"TenZed", score:9720},{name:"AimGod", score:9540},{name:"RapidFire", score:9320},{name:"Vapor", score:9110}],
+        FLICK: [{name:"Woxic", score:8920},{name:"FlickStar", score:8700},{name:"Neo", score:8540},{name:"Clutch", score:8300},{name:"Pulse", score:8120}],
+        TRACKING: [{name:"SmoothT", score:9150},{name:"ChaseX", score:8980},{name:"Focus", score:8730},{name:"Glide", score:8510},{name:"Tracker", score:8300}],
+        SWITCHING: [{name:"SwitchPro", score:8770},{name:"Multikill", score:8590},{name:"Cross", score:8400},{name:"Adapt", score:8210},{name:"Shift", score:8000}],
+        REACTION: [{name:"Lightning", score:9630},{name:"FastTap", score:9410},{name:"Reflex", score:9280},{name:"Quick", score:9070},{name:"Instant", score:8850}]
+    };
+    
+    let currentLeaderboardTab = "STATIC";
+    
+    // DOM elements
+    const totalHitsSpan = document.getElementById("totalHits");
+    const bestScoreOverallSpan = document.getElementById("bestScoreOverall");
+    const rankProgressFill = document.getElementById("rankProgressFill");
+    const roundScoreSpan = document.getElementById("roundScore");
+    const roundAccuracySpan = document.getElementById("roundAccuracy");
+    const roundHitsSpan = document.getElementById("roundHits");
+    const roundReactionSpan = document.getElementById("roundReaction");
+    const roundModeLabel = document.getElementById("roundModeLabel");
+    
+    // best scores spans
+    const bestSpans = {
+        STATIC: document.getElementById("bestStatic"),
+        FLICK: document.getElementById("bestFlick"),
+        TRACKING: document.getElementById("bestTracking"),
+        SWITCHING: document.getElementById("bestSwitching"),
+        REACTION: document.getElementById("bestReaction"),
+        TRACE: document.getElementById("bestTrace")
+    };
+    
+    // helper: update UI stats
+    function updateProfileUI() {
+        totalHitsSpan.innerText = userStats.totalHits;
+        bestScoreOverallSpan.innerText = userStats.bestScoreOverall;
+        // update per-mode best display
+        for (let mode in userStats.bestScores) {
+            if (bestSpans[mode]) bestSpans[mode].innerText = userStats.bestScores[mode];
+        }
+        let progressPercent = Math.min(100, (userStats.rankPoints / 2000) * 100);
+        rankProgressFill.style.width = `${progressPercent}%`;
+    }
+    
+    // add points to rank & total hits etc
+    function addRoundResults(score, accuracy, hits, reactionMs, modeUsed) {
+        // update total hits
+        userStats.totalHits += hits;
+        // update rank points (between 0-2000)
+        let pointsEarned = Math.floor(score * (accuracy/100) * 0.8);
+        if(pointsEarned < 5) pointsEarned = 5 + Math.floor(score/10);
+        userStats.rankPoints = Math.min(2000, userStats.rankPoints + pointsEarned);
+        // update best overall
+        if(score > userStats.bestScoreOverall) userStats.bestScoreOverall = score;
+        // update best per mode
+        if(score > userStats.bestScores[modeUsed]) userStats.bestScores[modeUsed] = score;
+        
+        updateProfileUI();
+    }
+    
+    // simulate training round based on current mode
+    function runTrainingRound() {
+        let mode = currentMode;
+        // random performance but weighted by mode flavor
+        let baseScore = 20 + Math.floor(Math.random() * 70); // 20-90
+        let accuracy = 55 + Math.floor(Math.random() * 42); // 55-97%
+        let hits = Math.floor((baseScore / 100) * 28) + 4 + Math.floor(Math.random() * 12);
+        let reaction = 180 + Math.floor(Math.random() * 120);
+        
+        // give slight bonuses for specific mode archetypes
+        if(mode === "FLICK") baseScore += 5;
+        if(mode === "REACTION") reaction = Math.max(120, reaction - 25);
+        if(mode === "TRACKING") accuracy = Math.min(98, accuracy + 6);
+        if(mode === "TRACE") hits += 3;
+        
+        let finalScore = Math.min(99, baseScore);
+        
+        // update round complete card
+        roundScoreSpan.innerText = finalScore;
+        roundAccuracySpan.innerText = accuracy;
+        roundHitsSpan.innerText = hits;
+        roundReactionSpan.innerText = reaction;
+        roundModeLabel.innerText = mode;
+        
+        // persist results to profile & rank
+        addRoundResults(finalScore, accuracy, hits, reaction, mode);
+        
+        // also animate card highlight
+        const roundCard = document.getElementById("roundCompleteCard");
+        roundCard.style.transform = "scale(1.01)";
+        setTimeout(() => { roundCard.style.transform = ""; }, 200);
+    }
+    
+    // Leaderboard render
+    function renderLeaderboard() {
+        const container = document.getElementById("leaderboardContent");
+        const data = leaderboardData[currentLeaderboardTab];
+        if(!data) {
+            container.innerHTML = "<div class='loading-text'>No data</div>";
+            return;
+        }
+        let html = `<div style="font-weight:600; margin-bottom:8px;"><i class="fas fa-crown"></i> TOP 5 - ${currentLeaderboardTab}</div>`;
+        data.forEach((entry, idx) => {
+            let medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : "•";
+            html += `<div class="leaderboard-item"><span>${medal} ${entry.name}</span><span style="font-weight:700;">${entry.score}</span></div>`;
+        });
+        container.innerHTML = html;
+    }
+    
+    // switch leaderboard tab
+    function setLeaderboardTab(tab) {
+        currentLeaderboardTab = tab;
+        renderLeaderboard();
+        document.querySelectorAll(".tab-btn").forEach(btn => {
+            if(btn.getAttribute("data-lb") === tab) btn.classList.add("active-tab");
+            else btn.classList.remove("active-tab");
+        });
+    }
+    
+    // mode selection highlight
+    function setActiveModeUI(mode) {
+        document.querySelectorAll(".mode-btn").forEach(btn => {
+            if(btn.getAttribute("data-mode") === mode) btn.classList.add("active");
+            else btn.classList.remove("active");
+        });
+    }
+    
+    // event listeners & init
+    function init() {
+        // mode selection
+        document.querySelectorAll(".mode-btn").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                const mode = btn.getAttribute("data-mode");
+                currentMode = mode;
+                setActiveModeUI(mode);
+                // update round mode label preview
+                roundModeLabel.innerText = mode;
+            });
+        });
+        
+        // start training
+        document.getElementById("startTrainingBtn").addEventListener("click", () => {
+            runTrainingRound();
+        });
+        
+        // play again (same mode)
+        document.getElementById("playAgainBtn").addEventListener("click", () => {
+            runTrainingRound();
+        });
+        
+        // back to menu (reset round card highlight or just scroll)
+        document.getElementById("backToMenuBtn").addEventListener("click", () => {
+            // just scroll or small toast simulation
+            alert("↺ Returned to main menu");
+        });
+        
+        // leaderboard back button
+        document.getElementById("leaderboardBackBtn").addEventListener("click", () => {
+            // just feedback
+            console.log("back from leaderboard");
+        });
+        
+        // leaderboard menu btn (scrolls to leaderboard)
+        document.getElementById("leaderboardMenuBtn").addEventListener("click", () => {
+            document.getElementById("leaderboardPanel").scrollIntoView({ behavior: "smooth" });
+        });
+        
+        // leaderboard tab listeners
+        document.querySelectorAll(".tab-btn").forEach(btn => {
+            btn.addEventListener("click", () => {
+                const lbMode = btn.getAttribute("data-lb");
+                if(lbMode) setLeaderboardTab(lbMode);
+            });
+        });
+        
+        // navbar buttons interactions (mock)
+        document.getElementById("leaderboardNavBtn").addEventListener("click", () => {
+            document.getElementById("leaderboardPanel").scrollIntoView({ behavior: "smooth" });
+        });
+        document.getElementById("profileBtn").addEventListener("click", () => {
+            alert("👤 PROFILE: Rank progress, total hits: " + userStats.totalHits);
+        });
+        document.getElementById("logoutBtn").addEventListener("click", () => {
+            alert("Logged out (demo)");
+        });
+        document.getElementById("loginMockBtn").addEventListener("click", () => alert("🔐 Login demo (already in training mode)"));
+        document.getElementById("registerMockBtn").addEventListener("click", () => alert("📝 Register new AimLab account"));
+        
+        // set initial best scores UI & rank
+        updateProfileUI();
+        setActiveModeUI("STATIC");
+        roundModeLabel.innerText = "STATIC";
+        // preload leaderboard
+        renderLeaderboard();
+        
+        // optional: initial placeholder round data
+        roundScoreSpan.innerText = "0";
+        roundAccuracySpan.innerText = "—";
+        roundHitsSpan.innerText = "0";
+        roundReactionSpan.innerText = "—";
+    }
+    
+    init();
+</script>
 </body>
 </html>
