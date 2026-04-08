@@ -188,6 +188,17 @@
       </div>
     </div>
 
+    <!-- Duration Picker -->
+    <div class="duration-pick">
+      <div class="section-label">SESSION LENGTH</div>
+      <div class="duration-row">
+        <button class="dur-btn" data-dur="15" onclick="setDuration(15)">15s</button>
+        <button class="dur-btn active" data-dur="30" onclick="setDuration(30)">30s</button>
+        <button class="dur-btn" data-dur="60" onclick="setDuration(60)">60s</button>
+        <button class="dur-btn" data-dur="90" onclick="setDuration(90)">90s</button>
+      </div>
+    </div>
+
     <button class="btn-primary start-btn" onclick="startGame()"><span>▶ START TRAINING</span></button>
 
     <div class="menu-bottom">
@@ -246,6 +257,16 @@
 
     <div class="prof-buttons">
       <button class="btn-ghost" onclick="showScreen('menu-screen')">← BACK</button>
+    </div>
+
+    <!-- Score History Graph -->
+    <div class="hist-block">
+      <div class="hist-header">
+        <span class="section-label" style="margin:0">SCORE HISTORY</span>
+        <div class="hist-tabs" id="hist-tabs"></div>
+      </div>
+      <canvas id="hist-canvas" height="160"></canvas>
+      <div id="hist-empty" class="hist-empty">Play some games to see your progress here!</div>
     </div>
   </div>
 </div>
@@ -342,9 +363,12 @@
 
     <div class="result-buttons">
       <button class="btn-primary" onclick="startGame()"><span>▶ PLAY AGAIN</span></button>
+      <button class="btn-ghost" onclick="shareResult()">📤 SHARE RESULT</button>
       <button class="btn-ghost" onclick="showLeaderboard()">🏆 LEADERBOARD</button>
       <button class="btn-ghost" onclick="showScreen('menu-screen')">MENU</button>
     </div>
+    <!-- Hidden canvas used to generate the share image -->
+    <canvas id="share-canvas" width="600" height="340" style="display:none;position:absolute;left:-9999px"></canvas>
   </div>
 </div>
 
