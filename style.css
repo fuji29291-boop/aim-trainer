@@ -561,3 +561,102 @@ input[type=range] { width:100%; accent-color:var(--accent); height:4px; }
   from { filter: brightness(1);   }
   to   { filter: brightness(1.8); }
 }
+
+/* ══════════════════════════════════════
+   DURATION PICKER
+══════════════════════════════════════ */
+.duration-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 480px;
+}
+.duration-row {
+  display: flex;
+  gap: 8px;
+}
+.dur-btn {
+  font-family: 'Orbitron', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  padding: 9px 22px;
+  background: transparent;
+  border: 1px solid var(--border2);
+  color: var(--muted);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all 0.18s;
+}
+.dur-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.dur-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+/* ══════════════════════════════════════
+   SCORE HISTORY GRAPH
+══════════════════════════════════════ */
+.hist-block {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+.hist-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.hist-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.hist-tab {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  background: transparent;
+  border: 1px solid var(--border2);
+  color: var(--muted);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.hist-tab:hover  { color: var(--text); border-color: var(--muted); }
+.hist-tab.active { color: var(--accent); border-color: var(--accent); background: var(--accent-dim); }
+#hist-canvas {
+  display: block;
+  width: 100%;
+  background: transparent;
+  padding: 8px 0 0;
+}
+.hist-empty {
+  text-align: center;
+  padding: 32px 20px;
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+
+/* ══════════════════════════════════════
+   SHARE BUTTON
+══════════════════════════════════════ */
+.result-buttons .btn-ghost:first-of-type {
+  border-color: rgba(0,245,255,0.3);
+  color: var(--accent);
+}
