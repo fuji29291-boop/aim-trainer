@@ -24,10 +24,10 @@ const RANKS = [
   { name:'BRONZE',   icon:'🥉', min:1500   },
   { name:'SILVER',   icon:'🥈', min:4000   },
   { name:'GOLD',     icon:'🥇', min:8000   },
-  { name:'PLATINUM', icon:'💎', min:14000  },
-  { name:'DIAMOND',  icon:'💠', min:22000  },
-  { name:'MASTER',   icon:'🔮', min:35000  },
-  { name:'IMMORTAL', icon:'👑', min:55000  },
+  { name:'PLATINUM', icon:'💎', min:12500  },
+  { name:'DIAMOND',  icon:'💠', min:16000  },
+  { name:'MASTER',   icon:'🔮', min:20000  },
+  { name:'IMMORTAL', icon:'👑', min:24000  },
 ];
 
 function getRank(s) {
@@ -48,7 +48,7 @@ function getRankProgress(score) {
 // ═══════════════════════════════════════════════════════════
 //  CONSTANTS
 // ═══════════════════════════════════════════════════════════
-const RANKED_MODES   = ['static','flick','tracking','switching','reaction'];
+const RANKED_MODES   = ['static','flick','tracking','switching','reaction','switchtrack'];
 const HUD_HEIGHT     = 58;
 
 // Anti-cheat: these are generous but physically impossible to exceed
@@ -56,7 +56,7 @@ const HUD_HEIGHT     = 58;
 // Flick:  1.5x multiplier so ~15000
 // Reaction: 10 rounds * 2500 max = 25000
 const MAX_SCORE_PER_MODE = {
-  static: 12000, flick: 18000, tracking: 14000, switching: 14000, reaction: 25000, trace: 999999
+  static: 14000, flick: 19000, tracking: 16000, switching: 16000, reaction: 26000, switchtrack: 19000, trace: 999999
 };
 const MAX_HITS       = 200;
 const MIN_MS_PER_HIT = 100; // human physiological limit ~80ms, give margin
@@ -100,6 +100,7 @@ function setTheme(t) {
 let audioCtx = null;
 function getAudio() {
   if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
   return audioCtx;
 }
 function _tone(freq, endFreq, type, gainStart, gainEnd, duration) {
@@ -138,7 +139,8 @@ let hitTimestamps = [], reactionTimes = [];
 let reactionState = 'idle', reactionTimeout = null;
 let reactionRound = 0;
 const reactionMax = 10;
-let trackingFrameId  = null;
+let trackingFrameId    = null;
+let switchTrackFrameId = null;
 let traceFrameId     = null;
 let currentLbTab     = 'static';
 
@@ -233,7 +235,7 @@ async function register() {
 
     const profData = {
       id:uid, username, best_score:0, total_hits:0, games_played:0, avatar:'🎯',
-      best_static:0, best_flick:0, best_tracking:0, best_switching:0, best_reaction:0
+      best_static:0, best_flick:0, best_tracking:0, best_switching:0, best_reaction:0, best_switchtrack:0
     };
     const profRes = await supabase('/rest/v1/profiles', { method:'POST', body:JSON.stringify(profData) }, token);
     if (!profRes.ok) throw new Error('Account created but profile save failed. Try logging in.');
@@ -274,7 +276,7 @@ async function login() {
 
     currentProfile = prof.data[0];
 
-    // Back-fill missing best_* columns for old accounts
+    // Back-fill missing best_* columns for old accounts (including new modes)
     for (const m of RANKED_MODES) {
       if (currentProfile['best_' + m] === undefined) currentProfile['best_' + m] = 0;
     }
@@ -445,8 +447,9 @@ function startGame() {
   const reactEl = document.getElementById('reaction-overlay');
   if (reactEl) reactEl.style.display = 'none';
 
-  if (selectedMode === 'reaction') { startReactionMode(); return; }
-  if (selectedMode === 'trace')    { startTraceMode();    return; }
+  if (selectedMode === 'reaction')    { startReactionMode();    return; }
+  if (selectedMode === 'trace')       { startTraceMode();       return; }
+  if (selectedMode === 'switchtrack') { startSwitchTracking(); return; }
 
   // Standard timer
   gameTimer = setInterval(() => {
@@ -510,6 +513,9 @@ function startTracking() {
 }
 function stopTracking() {
   if (trackingFrameId) { cancelAnimationFrame(trackingFrameId); trackingFrameId = null; }
+}
+function stopSwitchTracking() {
+  if (switchTrackFrameId) { cancelAnimationFrame(switchTrackFrameId); switchTrackFrameId = null; }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -594,7 +600,7 @@ function addReactionPill(text) {
 //  SPAWN TARGET
 // ═══════════════════════════════════════════════════════════
 function spawnTarget() {
-  if (!isGameRunning || selectedMode === 'reaction' || selectedMode === 'trace') return;
+  if (!isGameRunning || selectedMode === 'reaction' || selectedMode === 'trace' || selectedMode === 'switchtrack') return;
 
   // Cap tracking targets at 3 simultaneously
   if (selectedMode === 'tracking' && document.querySelectorAll('.target.tracking').length >= 3) return;
@@ -680,8 +686,10 @@ function hitTarget(el, x, y) {
   else if (timeSinceLast < 650)  { points += 60;  bonusText = '+60 QUICK';  }
 
   // Mode multipliers
-  if (selectedMode === 'flick')    points = Math.round(points * 1.8);
-  if (selectedMode === 'tracking') points = Math.round(points * 1.5);
+  if (selectedMode === 'flick')        points = Math.round(points * 1.8);
+  if (selectedMode === 'tracking')     points = Math.round(points * 1.5);
+  if (selectedMode === 'switchtrack' && isPriority)  { points = Math.round(points * 2.2); bonusText = '+LOCK!'; }
+  if (selectedMode === 'switchtrack' && !isPriority) { points = Math.round(points * 0.5); }
   if (selectedMode === 'switching' && isPriority) { points += 200; bonusText = '+200 PRIORITY!'; }
 
   // Streak multiplier: every 5 hits = +10% up to +60%
@@ -749,7 +757,8 @@ function validateScore() {
   const ms       = Date.now() - sessionStartTime;
   const maxScore = MAX_SCORE_PER_MODE[selectedMode] || 20000;
 
-  if (ms < 24000)         return { valid:false, reason:'Session too short' };
+  if (selectedMode !== 'reaction' && ms < 24000) return { valid:false, reason:'Session too short' };
+  if (selectedMode === 'reaction' && hits < 5)      return { valid:false, reason:'Too few reaction rounds' };
   if (score > maxScore)   return { valid:false, reason:'Score exceeds maximum for this mode' };
   if (hits > MAX_HITS)    return { valid:false, reason:'Hit count exceeds maximum' };
 
@@ -774,7 +783,7 @@ async function endGame() {
 
   clearInterval(gameTimer); clearInterval(spawnTimer);
   clearTimeout(reactionTimeout);
-  stopTracking(); stopTraceMode(); // FIX: always clean up both
+  stopTracking(); stopTraceMode(); stopSwitchTracking(); // FIX: always clean up all
   clearGameArea();
 
   const ov = document.getElementById('reaction-overlay');
@@ -969,6 +978,7 @@ function startTraceMode() {
   const rect = ga.getBoundingClientRect();
 
   traceX = rect.width / 2; traceY = rect.height / 2;
+  traceMouseX = rect.width / 2; traceMouseY = rect.height / 2; // FIX: init to center not 0,0
   traceAngle = Math.random() * Math.PI * 2;
   traceSpeed = diff.baseSpeed;
   traceOnFrames = 0; traceTotalFrames = 0; traceChangeTimer = 0;
@@ -1121,7 +1131,10 @@ function initCrosshair() {
     document.body.appendChild(_xhairEl);
   }
   document.addEventListener('mousemove', e => {
-    if (_xhairEl) { _xhairEl.style.left = e.clientX + 'px'; _xhairEl.style.top = e.clientY + 'px'; }
+    if (_xhairEl) {
+      // FIX: transform is GPU-composited, left/top causes layout reflow (laggy)
+      _xhairEl.style.transform = `translate(${e.clientX - 16}px, ${e.clientY - 16}px)`;
+    }
   }, { passive: true });
   setCrosshair(settings.crosshair);
 }
@@ -1192,7 +1205,13 @@ function escHtml(s) {
 // ═══════════════════════════════════════════════════════════
 //  INIT
 // ═══════════════════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && isGameRunning) endGame();
+});
+
 window.addEventListener('DOMContentLoaded', () => {
+  // Resume AudioContext on first user interaction (browser autoplay policy)
+  document.addEventListener('mousedown', () => { if (audioCtx && audioCtx.state==='suspended') audioCtx.resume(); }, { once:true });
   initCrosshair();
 
   // mousedown for miss — faster than click, same as hit detection
@@ -1207,3 +1226,177 @@ window.addEventListener('DOMContentLoaded', () => {
   // Build avatar picker on profile open
   // (handled in showProfile())
 });
+
+// ═══════════════════════════════════════════════════════════
+//  SWITCH TRACKING MODE
+//  Moving targets + priority rotation. Hit the glowing one.
+//  Combines tracking movement with switching priority system.
+// ═══════════════════════════════════════════════════════════
+const ST_TARGET_COUNT = 3; // targets alive simultaneously
+const ST_SPEED_BASE   = 3.0;
+const ST_SPEED_VAR    = 1.8;
+
+function startSwitchTracking() {
+  const ov = document.getElementById('reaction-overlay');
+  if (ov) ov.style.display = 'none';
+  clearGameArea();
+
+  const ga = document.getElementById('game-area');
+  if (!ga) return;
+
+  // Spawn all 3 targets immediately
+  for (let i = 0; i < ST_TARGET_COUNT; i++) {
+    spawnSwitchTrackTarget(ga);
+  }
+
+  // Give first one priority
+  const all = document.querySelectorAll('.target.switchtrack');
+  if (all.length > 0) all[0].classList.add('priority');
+
+  // Timer
+  gameTimer = setInterval(() => {
+    timeLeft--;
+    const td = document.getElementById('timer-display');
+    if (td) td.textContent = timeLeft;
+    if (timeLeft <= 5) { if (td) td.classList.add('urgent'); playCountdown(); }
+    if (timeLeft <= 0) endGame();
+  }, 1000);
+
+  // Movement loop (separate from spawnTarget's timer)
+  moveSwitchTrackTargets(ga);
+}
+
+function spawnSwitchTrackTarget(ga) {
+  if (!ga) ga = document.getElementById('game-area');
+  if (!ga || !isGameRunning) return;
+
+  const sz     = settings.size;
+  const margin = sz + 8;
+  const W      = ga.offsetWidth, H = ga.offsetHeight;
+  const x = margin + Math.random() * (W - margin * 2);
+  const y = HUD_HEIGHT + margin + Math.random() * (H - HUD_HEIGHT - margin * 2);
+
+  const t = document.createElement('div');
+  t.className = 'target switchtrack';
+  t.style.cssText = `width:${sz}px;height:${sz}px;left:${x}px;top:${y}px`;
+  t.dataset.angle = Math.random() * Math.PI * 2;
+  t.dataset.spd   = ST_SPEED_BASE + Math.random() * ST_SPEED_VAR;
+  t.innerHTML = '<div class="target-inner"></div>';
+
+  t.addEventListener('mousedown', e => {
+    e.stopPropagation();
+    const rect   = t.getBoundingClientRect();
+    const gaRect = ga.getBoundingClientRect();
+    const lx = rect.left - gaRect.left + rect.width  / 2;
+    const ly = rect.top  - gaRect.top  + rect.height / 2;
+    hitSwitchTrackTarget(t, lx, ly, ga);
+  });
+
+  ga.appendChild(t);
+}
+
+function hitSwitchTrackTarget(el, x, y, ga) {
+  if (!isGameRunning) return;
+
+  const now = Date.now();
+  hitTimestamps.push(now);
+  const timeSinceLast = lastHitTime ? (now - lastHitTime) : 9999;
+  lastHitTime = now;
+
+  const isPriority = el.classList.contains('priority');
+
+  streak++;
+  if (streak > bestStreak) bestStreak = streak;
+
+  let points = 150, bonusText = null;
+
+  if (timeSinceLast < 350)      { points += 120; bonusText = '+120 FAST!'; }
+  else if (timeSinceLast < 650) { points += 60;  bonusText = '+60 QUICK';  }
+
+  if (isPriority) {
+    points = Math.round(points * 2.2);
+    bonusText = '🎯 LOCKED!';
+    playPriorityHit();
+  } else {
+    // Non-priority hit: half points, streak breaks
+    points = Math.round(points * 0.4);
+    streak = 0; // penalty for hitting wrong target
+    bonusText = '✗ WRONG';
+    playMiss();
+  }
+
+  const streakMult = 1 + Math.min(0.6, Math.floor(streak / 5) * 0.1);
+  points = Math.round(points * streakMult);
+
+  hits++; score += points; updateHUD();
+  if (isPriority && streak % 5 === 0 && streak > 0) playStreak(streak / 5);
+
+  showScorePopup(x, y, (points > 0 ? '+' : '') + points, false);
+  if (bonusText) showScorePopup(x, y - 38, bonusText, true);
+  if (streak >= 3 && isPriority) showStreakLabel(x, y + 38);
+  showHitRing(x, y);
+
+  // Update streak HUD
+  const sEl = document.getElementById('hud-streak');
+  const sCount = document.getElementById('streak-count');
+  if (sEl && sCount) {
+    if (streak >= 3) { sEl.style.display = 'block'; sCount.textContent = streak; }
+    else             { sEl.style.display = 'none'; }
+  }
+
+  // Remove the hit target
+  el.remove();
+
+  // Spawn a replacement
+  setTimeout(() => {
+    if (!isGameRunning) return;
+    const g = document.getElementById('game-area');
+    if (g) {
+      spawnSwitchTrackTarget(g);
+      // Assign priority to a random remaining target
+      assignSwitchTrackPriority();
+    }
+  }, 150);
+
+  // Reassign priority among remaining
+  assignSwitchTrackPriority();
+}
+
+function assignSwitchTrackPriority() {
+  const all = document.querySelectorAll('.target.switchtrack');
+  all.forEach(t => t.classList.remove('priority'));
+  if (all.length > 0) {
+    all[Math.floor(Math.random() * all.length)].classList.add('priority');
+  }
+}
+
+function moveSwitchTrackTargets(ga) {
+  if (!isGameRunning) return;
+
+  const W = ga.offsetWidth, H = ga.offsetHeight;
+
+  document.querySelectorAll('.target.switchtrack').forEach(t => {
+    let angle = parseFloat(t.dataset.angle) || 0;
+    let spd   = parseFloat(t.dataset.spd)   || ST_SPEED_BASE;
+    let x = parseFloat(t.style.left);
+    let y = parseFloat(t.style.top);
+    const r = settings.size / 2 + 4;
+
+    angle += (Math.random() - 0.5) * 0.055; // organic curve
+
+    x += Math.cos(angle) * spd;
+    y += Math.sin(angle) * spd;
+
+    if (x < r)            { x = r;            angle = Math.PI - angle + (Math.random()-0.5)*0.3; }
+    if (x > W - r)        { x = W - r;        angle = Math.PI - angle + (Math.random()-0.5)*0.3; }
+    if (y < HUD_HEIGHT+r) { y = HUD_HEIGHT+r; angle = -angle + (Math.random()-0.5)*0.3; }
+    if (y > H - r)        { y = H - r;        angle = -angle + (Math.random()-0.5)*0.3; }
+
+    t.style.left    = x + 'px';
+    t.style.top     = y + 'px';
+    t.dataset.angle = angle;
+    t.dataset.spd   = spd;
+  });
+
+  switchTrackFrameId = requestAnimationFrame(() => moveSwitchTrackTargets(ga));
+}
