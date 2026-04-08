@@ -101,6 +101,11 @@
           <div class="mode-card-name">REACTION</div>
           <div class="mode-card-desc">Pure speed test</div>
         </button>
+        <button class="mode-card" onclick="selectMode('switchtrack')" id="mode-switchtrack">
+          <div class="mode-card-icon">🎯</div>
+          <div class="mode-card-name">SWITCH TRACK</div>
+          <div class="mode-card-desc">Moving priority targets</div>
+        </button>
         <button class="mode-card training" onclick="selectMode('trace')" id="mode-trace">
           <div class="mode-card-icon">〜</div>
           <div class="mode-card-name">TRACE</div>
@@ -235,6 +240,7 @@
       <div class="prof-mode-row"><span>◎ TRACKING</span><span id="prof-best-tracking">—</span><span id="prof-rank-tracking" class="mode-rank-badge">—</span></div>
       <div class="prof-mode-row"><span>⁂ SWITCHING</span><span id="prof-best-switching">—</span><span id="prof-rank-switching" class="mode-rank-badge">—</span></div>
       <div class="prof-mode-row"><span>◈ REACTION</span><span id="prof-best-reaction">—</span><span id="prof-rank-reaction" class="mode-rank-badge">—</span></div>
+      <div class="prof-mode-row"><span>🎯 SW.TRACK</span><span id="prof-best-switchtrack">—</span><span id="prof-rank-switchtrack" class="mode-rank-badge">—</span></div>
       <div class="prof-mode-row training-row"><span>〜 TRACE</span><span id="prof-best-trace">TRAINING</span><span class="mode-rank-badge muted">NO RANK</span></div>
     </div>
 
@@ -259,6 +265,7 @@
       <button class="lb-tab" onclick="switchLbMode('tracking')">TRACKING</button>
       <button class="lb-tab" onclick="switchLbMode('switching')">SWITCHING</button>
       <button class="lb-tab" onclick="switchLbMode('reaction')">REACTION</button>
+      <button class="lb-tab" onclick="switchLbMode('switchtrack')">SW.TRACK</button>
     </div>
     <div id="lb-list"><div class="lb-loading">FETCHING SCORES...</div></div>
     <button class="btn-ghost" onclick="showScreen('menu-screen')">← BACK</button>
