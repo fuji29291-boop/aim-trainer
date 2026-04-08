@@ -11,6 +11,13 @@
 //  8. Double-endGame guard (isGameRunning check at top)
 //  9. Tracking targets can't stack at border (clamped before bounce)
 //  10. Anti-cheat session time reduced to 24s (30s game - 1s buffer)
+//  ── New fixes this version ──
+//  11. BUG 1: Reaction mode perfect score no longer flagged as "suspicious accuracy"
+//            (accuracy check now skipped for reaction + switchtrack — misses are 0 by design)
+//  12. BUG 2: best_switchtrack column — must run SQL (see README) before going live
+//  13. BUG 3: setTheme no longer wipes ALL body classes — only strips theme-* classes
+//  14. BUG 4: Crosshair uses translate3d() + will-change for true GPU compositing (no lag)
+//  15. BUG 5: Wrong-target hits in switchtrack now count as misses not hits (honest accuracy)
 // ═══════════════════════════════════════════════════════════
 
 const SUPABASE_URL = 'https://wncodurkmacfkubnhyhi.supabase.co';
@@ -89,7 +96,10 @@ function toggleSound() {
 }
 function setTheme(t) {
   settings.theme = t;
-  document.body.className = document.body.className.replace(/theme-\w+/g,'').trim();
+  // Only strip theme-* classes — don't wipe unrelated body classes
+  [...document.body.classList].forEach(c => {
+    if (c.startsWith('theme-')) document.body.classList.remove(c);
+  });
   if (t !== 'cyan') document.body.classList.add('theme-' + t);
   document.querySelectorAll('.theme-btn').forEach(b => b.classList.toggle('active', b.dataset.theme === t));
 }
@@ -130,6 +140,7 @@ function playCountdown()     { _tone(440, null, 'square', 0.15, 0.001, 0.06); }
 let currentUser    = null;
 let currentProfile = null;
 let selectedMode   = 'static';
+let selectedDuration = 30; // session length: 15 / 30 / 60 / 90
 
 let score = 0, hits = 0, misses = 0, timeLeft = 30;
 let streak = 0, bestStreak = 0;
@@ -364,6 +375,11 @@ async function showProfile() {
 
   // Build avatar picker
   buildAvatarPicker();
+
+  // Build + draw score history graph
+  buildHistTabs();
+  drawHistory();
+  initHistTooltip();
 }
 
 function buildAvatarPicker() {
@@ -417,6 +433,11 @@ function selectMode(mode) {
   const el = document.getElementById('mode-' + mode);
   if (el) el.classList.add('active');
 }
+function setDuration(d) {
+  selectedDuration = d;
+  document.querySelectorAll('.dur-btn').forEach(b =>
+    b.classList.toggle('active', parseInt(b.dataset.dur) === d));
+}
 function _setEl(id, val) {
   const el = document.getElementById(id);
   if (el) el.textContent = val;
@@ -429,7 +450,7 @@ function startGame() {
   if (!currentUser || !currentProfile) return showScreen('auth-screen');
 
   // Full reset
-  score = 0; hits = 0; misses = 0; timeLeft = 30;
+  score = 0; hits = 0; misses = 0; timeLeft = selectedDuration;
   streak = 0; bestStreak = 0; lastHitTime = 0;
   hitTimestamps = []; reactionTimes = [];
   sessionStartTime = Date.now();
@@ -754,22 +775,26 @@ function missClick(e) {
 function validateScore() {
   if (selectedMode === 'trace') return { valid:false, reason:'TRACE IS TRAINING ONLY — not ranked' };
 
-  const ms       = Date.now() - sessionStartTime;
-  const maxScore = MAX_SCORE_PER_MODE[selectedMode] || 20000;
+  const ms            = Date.now() - sessionStartTime;
+  const durationScale = selectedDuration / 30;
+  const maxScore      = (MAX_SCORE_PER_MODE[selectedMode] || 20000) * durationScale;
+  const minMs         = (selectedDuration - 2) * 1000;
 
-  if (selectedMode !== 'reaction' && ms < 24000) return { valid:false, reason:'Session too short' };
-  if (selectedMode === 'reaction' && hits < 5)      return { valid:false, reason:'Too few reaction rounds' };
-  if (score > maxScore)   return { valid:false, reason:'Score exceeds maximum for this mode' };
-  if (hits > MAX_HITS)    return { valid:false, reason:'Hit count exceeds maximum' };
+  if (selectedMode !== 'reaction' && ms < minMs) return { valid:false, reason:'Session too short' };
+  if (selectedMode === 'reaction' && hits < 5)   return { valid:false, reason:'Too few reaction rounds' };
+  if (score > maxScore)                          return { valid:false, reason:'Score exceeds maximum for this mode' };
+  if (hits > MAX_HITS * durationScale)           return { valid:false, reason:'Hit count exceeds maximum' };
 
   for (let i = 1; i < hitTimestamps.length; i++) {
     if (hitTimestamps[i] - hitTimestamps[i-1] < MIN_MS_PER_HIT)
       return { valid:false, reason:'Inhuman click speed detected' };
   }
 
-  const total = hits + misses;
-  if (total > 5 && hits / total > 0.999)
-    return { valid:false, reason:'Suspicious accuracy' };
+  if (selectedMode !== 'reaction' && selectedMode !== 'switchtrack') {
+    const total = hits + misses;
+    if (total > 5 && hits / total > 0.999)
+      return { valid:false, reason:'Suspicious accuracy' };
+  }
 
   return { valid:true };
 }
@@ -868,6 +893,8 @@ async function endGame() {
     _setEl('badge-rank-next', progUpd.next ? progUpd.pointsNeeded.toLocaleString() + ' pts → ' + progUpd.next.name : '✦ MAX RANK');
 
     statusEl.textContent = '✓ SCORE SUBMITTED'; statusEl.className = 'submit-status success';
+    // Save to local history for the graph
+    saveToHistory(selectedMode, score, accuracy, hits, bestStreak, selectedDuration);
 
     // Show mode rank
     const modeRank = await fetchModeRank(selectedMode, score);
@@ -1130,10 +1157,12 @@ function initCrosshair() {
     _xhairEl.id = 'custom-crosshair';
     document.body.appendChild(_xhairEl);
   }
+  // Hint browser to promote to GPU layer before first mousemove
+  _xhairEl.style.willChange = 'transform';
   document.addEventListener('mousemove', e => {
     if (_xhairEl) {
-      // FIX: transform is GPU-composited, left/top causes layout reflow (laggy)
-      _xhairEl.style.transform = `translate(${e.clientX - 16}px, ${e.clientY - 16}px)`;
+      // translate3d forces GPU compositing — zero layout cost, zero lag
+      _xhairEl.style.transform = `translate3d(${e.clientX - 16}px,${e.clientY - 16}px,0)`;
     }
   }, { passive: true });
   setCrosshair(settings.crosshair);
@@ -1317,18 +1346,20 @@ function hitSwitchTrackTarget(el, x, y, ga) {
     points = Math.round(points * 2.2);
     bonusText = '🎯 LOCKED!';
     playPriorityHit();
+    hits++; // correct target — counts as a hit
   } else {
-    // Non-priority hit: half points, streak breaks
+    // Wrong target — counts as a miss so accuracy is honest
     points = Math.round(points * 0.4);
-    streak = 0; // penalty for hitting wrong target
+    streak = 0;
     bonusText = '✗ WRONG';
     playMiss();
+    misses++; // BUG 5 FIX: was incorrectly counting as a hit, inflating accuracy
   }
 
   const streakMult = 1 + Math.min(0.6, Math.floor(streak / 5) * 0.1);
   points = Math.round(points * streakMult);
 
-  hits++; score += points; updateHUD();
+  score += points; updateHUD();
   if (isPriority && streak % 5 === 0 && streak > 0) playStreak(streak / 5);
 
   showScorePopup(x, y, (points > 0 ? '+' : '') + points, false);
@@ -1399,4 +1430,299 @@ function moveSwitchTrackTargets(ga) {
   });
 
   switchTrackFrameId = requestAnimationFrame(() => moveSwitchTrackTargets(ga));
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SCORE HISTORY  (localStorage — no backend needed)
+//  Stores last 20 sessions per mode.
+//  Schema: { score, accuracy, hits, streak, duration, ts }
+// ═══════════════════════════════════════════════════════════
+const HISTORY_KEY = 'aimlab_history_v1';
+const HISTORY_MAX = 20;
+
+function loadHistory() {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '{}'); }
+  catch { return {}; }
+}
+
+function saveToHistory(mode, score, accuracy, hits, streak, duration) {
+  const all  = loadHistory();
+  if (!all[mode]) all[mode] = [];
+  all[mode].unshift({ score, accuracy, hits, streak, duration, ts: Date.now() });
+  if (all[mode].length > HISTORY_MAX) all[mode] = all[mode].slice(0, HISTORY_MAX);
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(all)); } catch {}
+}
+
+// ── Graph rendering ─────────────────────────────────────────
+let histActiveMode = 'static';
+
+function buildHistTabs() {
+  const tabs = document.getElementById('hist-tabs');
+  if (!tabs) return;
+  tabs.innerHTML = '';
+  RANKED_MODES.forEach(m => {
+    const b = document.createElement('button');
+    b.className = 'hist-tab' + (m === histActiveMode ? ' active' : '');
+    b.textContent = m.toUpperCase();
+    b.onclick = () => {
+      histActiveMode = m;
+      document.querySelectorAll('.hist-tab').forEach(t => t.classList.toggle('active', t.textContent === m.toUpperCase()));
+      drawHistory();
+    };
+    tabs.appendChild(b);
+  });
+}
+
+function drawHistory() {
+  const canvas  = document.getElementById('hist-canvas');
+  const emptyEl = document.getElementById('hist-empty');
+  if (!canvas) return;
+
+  const all     = loadHistory();
+  const entries = (all[histActiveMode] || []).slice().reverse(); // oldest first
+  const ctx     = canvas.getContext('2d');
+
+  // Resize canvas to match CSS width
+  canvas.width  = canvas.offsetWidth || 600;
+  canvas.height = 160;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (!entries.length) {
+    if (emptyEl) emptyEl.style.display = 'block';
+    canvas.style.display = 'none';
+    return;
+  }
+  if (emptyEl) emptyEl.style.display = 'none';
+  canvas.style.display = 'block';
+
+  const W      = canvas.width;
+  const H      = canvas.height;
+  const pad    = { t:16, r:16, b:28, l:44 };
+  const gW     = W - pad.l - pad.r;
+  const gH     = H - pad.t - pad.b;
+  const scores = entries.map(e => e.score);
+  const maxS   = Math.max(...scores, 1);
+  const n      = entries.length;
+
+  // Accent colour from CSS variable
+  const accent = getComputedStyle(document.documentElement)
+    .getPropertyValue('--accent').trim() || '#00f5ff';
+
+  const xOf = i => pad.l + (n === 1 ? gW / 2 : (i / (n - 1)) * gW);
+  const yOf = s => pad.t + gH - (s / maxS) * gH;
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth   = 1;
+  [0, 0.25, 0.5, 0.75, 1].forEach(f => {
+    const y = pad.t + gH * (1 - f);
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
+    // Y labels
+    ctx.fillStyle = 'rgba(255,255,255,0.25)';
+    ctx.font      = '9px Rajdhani, sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(Math.round(maxS * f).toLocaleString(), pad.l - 5, y + 3);
+  });
+
+  // Gradient fill under the line
+  const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + gH);
+  grad.addColorStop(0,   accent.replace(')', ', 0.35)').replace('rgb', 'rgba'));
+  grad.addColorStop(1,   accent.replace(')', ', 0)').replace('rgb', 'rgba'));
+  ctx.beginPath();
+  ctx.moveTo(xOf(0), yOf(scores[0]));
+  entries.forEach((e, i) => { if (i > 0) ctx.lineTo(xOf(i), yOf(e.score)); });
+  ctx.lineTo(xOf(n - 1), pad.t + gH);
+  ctx.lineTo(xOf(0),     pad.t + gH);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  ctx.moveTo(xOf(0), yOf(scores[0]));
+  entries.forEach((e, i) => { if (i > 0) ctx.lineTo(xOf(i), yOf(e.score)); });
+  ctx.strokeStyle = accent;
+  ctx.lineWidth   = 2;
+  ctx.lineJoin    = 'round';
+  ctx.stroke();
+
+  // Dots + tooltips on hover (stored in canvas dataset for mousemove)
+  const points = entries.map((e, i) => ({ x: xOf(i), y: yOf(e.score), score: e.score, acc: e.accuracy }));
+  canvas.dataset.points = JSON.stringify(points);
+
+  points.forEach(p => {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+    ctx.fillStyle   = accent;
+    ctx.strokeStyle = '#05070f';
+    ctx.lineWidth   = 2;
+    ctx.fill();
+    ctx.stroke();
+  });
+
+  // X labels (session numbers)
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  ctx.font      = '9px Rajdhani, sans-serif';
+  ctx.textAlign = 'center';
+  entries.forEach((_, i) => {
+    if (n <= 10 || i % Math.ceil(n / 8) === 0) {
+      ctx.fillText(i + 1, xOf(i), H - 6);
+    }
+  });
+
+  // Best score line
+  const bestScore = Math.max(...scores);
+  const bestY     = yOf(bestScore);
+  ctx.setLineDash([4, 4]);
+  ctx.strokeStyle = 'rgba(255,215,0,0.4)';
+  ctx.lineWidth   = 1;
+  ctx.beginPath(); ctx.moveTo(pad.l, bestY); ctx.lineTo(W - pad.r, bestY); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(255,215,0,0.6)';
+  ctx.font      = '9px Rajdhani, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('BEST', W - pad.r - 2, bestY - 3);
+}
+
+// Tooltip on hover
+function initHistTooltip() {
+  const canvas = document.getElementById('hist-canvas');
+  if (!canvas) return;
+  const tip = document.createElement('div');
+  tip.id = 'hist-tip';
+  tip.style.cssText = `position:fixed;background:rgba(5,7,15,0.9);border:1px solid rgba(0,245,255,0.3);
+    color:#e8eef8;font-size:11px;padding:4px 10px;border-radius:2px;pointer-events:none;
+    display:none;font-family:Rajdhani,sans-serif;letter-spacing:1px;z-index:999;white-space:nowrap;`;
+  document.body.appendChild(tip);
+
+  canvas.addEventListener('mousemove', e => {
+    const pts = JSON.parse(canvas.dataset.points || '[]');
+    if (!pts.length) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx   = e.clientX - rect.left;
+    const my   = e.clientY - rect.top;
+    const scaleX = canvas.width / rect.width;
+    const cx   = mx * scaleX;
+    const cy   = my * (canvas.height / rect.height);
+    const hit  = pts.find(p => Math.hypot(p.x - cx, p.y - cy) < 14);
+    if (hit) {
+      tip.style.display = 'block';
+      tip.style.left    = (e.clientX + 12) + 'px';
+      tip.style.top     = (e.clientY - 28) + 'px';
+      tip.textContent   = `${hit.score.toLocaleString()} pts · ${hit.acc}% acc`;
+    } else {
+      tip.style.display = 'none';
+    }
+  });
+  canvas.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+}
+
+// ═══════════════════════════════════════════════════════════
+//  SHARE CARD  — generates a 600×340 image and downloads it
+// ═══════════════════════════════════════════════════════════
+function shareResult() {
+  const canvas = document.getElementById('share-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = 600, H = 340;
+  ctx.clearRect(0, 0, W, H);
+
+  // Background
+  ctx.fillStyle = '#05070f';
+  ctx.fillRect(0, 0, W, H);
+
+  // Subtle grid
+  ctx.strokeStyle = 'rgba(0,245,255,0.04)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 50) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 50) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  // Top accent bar
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#00f5ff';
+  ctx.fillStyle = accent;
+  ctx.fillRect(0, 0, W, 3);
+
+  // Logo
+  ctx.font      = 'bold 28px Orbitron, monospace';
+  ctx.fillStyle = accent;
+  ctx.textAlign = 'left';
+  ctx.fillText('AIMLAB', 28, 46);
+
+  // Mode badge
+  const modeLabel = document.getElementById('mode-label-hud')?.textContent || selectedMode.toUpperCase();
+  ctx.font      = '11px Rajdhani, sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.fillText('PRECISION TRAINING SYSTEM  ·  ' + modeLabel + ' MODE  ·  ' + selectedDuration + 's', 28, 64);
+
+  // Divider
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.fillRect(28, 74, W - 56, 1);
+
+  // Rank icon + name
+  const rankIcon = document.getElementById('result-rank-icon')?.textContent || '🩶';
+  const rankName = document.getElementById('result-rank-name')?.textContent || 'IRON';
+  ctx.font = '48px serif';
+  ctx.fillText(rankIcon, 28, 136);
+  ctx.font      = 'bold 18px Orbitron, monospace';
+  ctx.fillStyle = accent;
+  ctx.fillText(rankName, 86, 118);
+  ctx.font      = '12px Rajdhani, sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.fillText(currentProfile?.username || '', 86, 138);
+
+  // Stats grid (2 × 3)
+  const stats = [
+    { label:'SCORE',       val: document.getElementById('final-score')?.textContent    || '0'  },
+    { label:'ACCURACY',    val: document.getElementById('final-accuracy')?.textContent || '—'  },
+    { label:'HITS',        val: document.getElementById('final-hits')?.textContent     || '0'  },
+    { label:'BEST STREAK', val: document.getElementById('final-streak')?.textContent   || '0'  },
+    { label:'AVG REACT',   val: document.getElementById('final-react')?.textContent    || '—'  },
+    { label:'MISSES',      val: document.getElementById('final-misses')?.textContent   || '0'  },
+  ];
+  const colW = (W - 56) / 3;
+  stats.forEach((s, i) => {
+    const col  = i % 3;
+    const row  = Math.floor(i / 3);
+    const cx   = 28 + col * colW;
+    const cy   = 170 + row * 72;
+
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    roundRect(ctx, cx, cy, colW - 8, 60, 3);
+    ctx.fill();
+
+    ctx.font      = 'bold 22px Orbitron, monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.fillText(s.val, cx + (colW - 8) / 2, cy + 34);
+
+    ctx.font      = '10px Rajdhani, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillText(s.label, cx + (colW - 8) / 2, cy + 50);
+  });
+
+  // Footer
+  ctx.font      = '10px Rajdhani, sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.2)';
+  ctx.textAlign = 'right';
+  ctx.fillText('aimlab.vercel.app  ·  ' + new Date().toLocaleDateString(), W - 28, H - 12);
+
+  // Download
+  const link  = document.createElement('a');
+  link.download = 'aimlab-result.png';
+  link.href     = canvas.toDataURL('image/png');
+  link.click();
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y,     x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h,     x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y,         x + r, y);
+  ctx.closePath();
 }
