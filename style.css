@@ -52,7 +52,9 @@ body {
 #custom-crosshair {
   position: fixed; z-index: 9998; pointer-events: none;
   width: 32px; height: 32px;
-  transform: translate(-50%, -50%);
+  top: 0; left: 0;
+  will-change: transform;
+  /* JS sets transform: translate(x, y) — GPU path, zero layout reflow */
 }
 
 /* ── SCREENS ──────────────────────────── */
@@ -536,4 +538,26 @@ input[type=range] { width:100%; accent-color:var(--accent); height:4px; }
   position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%);
   font-family: 'Orbitron', monospace; font-size: 13px; letter-spacing: 3px;
   color: var(--muted); pointer-events: none; z-index: 10;
+}
+
+/* ══════════════════════════════════════
+   SWITCH TRACKING MODE
+══════════════════════════════════════ */
+.target.switchtrack .target-inner {
+  background: radial-gradient(circle at 35% 30%, #99aaff, #3344cc);
+  border-color: rgba(140,160,255,0.9);
+  box-shadow: 0 0 10px rgba(100,130,255,0.55), 0 0 28px rgba(80,100,255,0.2);
+}
+/* Priority in switchtrack: bright white-gold outline, strong glow */
+.target.switchtrack.priority .target-inner {
+  border: 2.5px solid #fff !important;
+  box-shadow:
+    0 0 20px rgba(255,255,255,0.9),
+    0 0 40px rgba(255,200,50,0.6),
+    0 0 60px rgba(255,150,0,0.3) !important;
+  animation: stPriorityPulse 0.4s ease-in-out infinite alternate;
+}
+@keyframes stPriorityPulse {
+  from { filter: brightness(1);   }
+  to   { filter: brightness(1.8); }
 }
