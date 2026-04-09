@@ -588,6 +588,14 @@ function _setEl(id, val) {
   const el = document.getElementById(id);
   if (el) el.textContent = val;
 }
+function toggleSettings() {
+  const body = document.getElementById('settings-body');
+  const arrow = document.getElementById('settings-arrow');
+  if (!body) return;
+  const isHidden = body.style.display === 'none';
+  body.style.display = isHidden ? 'block' : 'none';
+  if (arrow) arrow.textContent = isHidden ? '▲' : '▼';
+}
 
 // ═══════════════════════════════════════════════════════════
 //  GAME START
