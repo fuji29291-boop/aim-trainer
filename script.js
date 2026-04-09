@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════
-//  AIMLAB — COMPLETE SCRIPT
+//  AIMO — COMPLETE SCRIPT
 //  Bugs fixed vs previous version:
 //  1. MAX_SCORE raised to match rank thresholds (was 15k, ranks go to 80k)
 //  2. Tracking hitbox now uses live element position, not stale spawn coords
@@ -11,13 +11,6 @@
 //  8. Double-endGame guard (isGameRunning check at top)
 //  9. Tracking targets can't stack at border (clamped before bounce)
 //  10. Anti-cheat session time reduced to 24s (30s game - 1s buffer)
-//  ── New fixes this version ──
-//  11. BUG 1: Reaction mode perfect score no longer flagged as "suspicious accuracy"
-//            (accuracy check now skipped for reaction + switchtrack — misses are 0 by design)
-//  12. BUG 2: best_switchtrack column — must run SQL (see README) before going live
-//  13. BUG 3: setTheme no longer wipes ALL body classes — only strips theme-* classes
-//  14. BUG 4: Crosshair uses translate3d() + will-change for true GPU compositing (no lag)
-//  15. BUG 5: Wrong-target hits in switchtrack now count as misses not hits (honest accuracy)
 // ═══════════════════════════════════════════════════════════
 
 const SUPABASE_URL = 'https://wncodurkmacfkubnhyhi.supabase.co';
@@ -96,7 +89,6 @@ function toggleSound() {
 }
 function setTheme(t) {
   settings.theme = t;
-  // Only strip theme-* classes — don't wipe unrelated body classes
   [...document.body.classList].forEach(c => {
     if (c.startsWith('theme-')) document.body.classList.remove(c);
   });
@@ -139,8 +131,8 @@ function playCountdown()     { _tone(440, null, 'square', 0.15, 0.001, 0.06); }
 // ═══════════════════════════════════════════════════════════
 let currentUser    = null;
 let currentProfile = null;
-let selectedMode   = 'static';
-let selectedDuration = 30; // session length: 15 / 30 / 60 / 90
+let selectedMode     = 'static';
+let selectedDuration = 30;
 
 let score = 0, hits = 0, misses = 0, timeLeft = 30;
 let streak = 0, bestStreak = 0;
@@ -375,8 +367,7 @@ async function showProfile() {
 
   // Build avatar picker
   buildAvatarPicker();
-
-  // Build + draw score history graph
+  // Score history graph
   buildHistTabs();
   drawHistory();
   initHistTooltip();
@@ -790,6 +781,7 @@ function validateScore() {
       return { valid:false, reason:'Inhuman click speed detected' };
   }
 
+  // Bug 1 fix: reaction + switchtrack have 0 misses by design — skip accuracy check
   if (selectedMode !== 'reaction' && selectedMode !== 'switchtrack') {
     const total = hits + misses;
     if (total > 5 && hits / total > 0.999)
@@ -893,7 +885,7 @@ async function endGame() {
     _setEl('badge-rank-next', progUpd.next ? progUpd.pointsNeeded.toLocaleString() + ' pts → ' + progUpd.next.name : '✦ MAX RANK');
 
     statusEl.textContent = '✓ SCORE SUBMITTED'; statusEl.className = 'submit-status success';
-    // Save to local history for the graph
+    // Save locally for the history graph
     saveToHistory(selectedMode, score, accuracy, hits, bestStreak, selectedDuration);
 
     // Show mode rank
@@ -1157,11 +1149,13 @@ function initCrosshair() {
     _xhairEl.id = 'custom-crosshair';
     document.body.appendChild(_xhairEl);
   }
-  // Hint browser to promote to GPU layer before first mousemove
+  // Promote to GPU layer immediately — eliminates all cursor lag
   _xhairEl.style.willChange = 'transform';
+  _xhairEl.style.left = '0';
+  _xhairEl.style.top  = '0';
   document.addEventListener('mousemove', e => {
     if (_xhairEl) {
-      // translate3d forces GPU compositing — zero layout cost, zero lag
+      // translate3d forces GPU compositing — zero layout reflow, zero lag
       _xhairEl.style.transform = `translate3d(${e.clientX - 16}px,${e.clientY - 16}px,0)`;
     }
   }, { passive: true });
@@ -1346,14 +1340,14 @@ function hitSwitchTrackTarget(el, x, y, ga) {
     points = Math.round(points * 2.2);
     bonusText = '🎯 LOCKED!';
     playPriorityHit();
-    hits++; // correct target — counts as a hit
+    hits++; // correct target — counts as hit
   } else {
-    // Wrong target — counts as a miss so accuracy is honest
+    // Wrong target: penalty points, streak reset, counted as MISS for honest accuracy
     points = Math.round(points * 0.4);
     streak = 0;
     bonusText = '✗ WRONG';
     playMiss();
-    misses++; // BUG 5 FIX: was incorrectly counting as a hit, inflating accuracy
+    misses++; // Bug 5 fix: was hits++, inflating accuracy to 100%
   }
 
   const streakMult = 1 + Math.min(0.6, Math.floor(streak / 5) * 0.1);
@@ -1433,11 +1427,10 @@ function moveSwitchTrackTargets(ga) {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  SCORE HISTORY  (localStorage — no backend needed)
+//  SCORE HISTORY  (localStorage, no backend needed)
 //  Stores last 20 sessions per mode.
-//  Schema: { score, accuracy, hits, streak, duration, ts }
 // ═══════════════════════════════════════════════════════════
-const HISTORY_KEY = 'aimlab_history_v1';
+const HISTORY_KEY = 'aimo_history_v1';
 const HISTORY_MAX = 20;
 
 function loadHistory() {
@@ -1446,14 +1439,14 @@ function loadHistory() {
 }
 
 function saveToHistory(mode, score, accuracy, hits, streak, duration) {
-  const all  = loadHistory();
+  const all = loadHistory();
   if (!all[mode]) all[mode] = [];
   all[mode].unshift({ score, accuracy, hits, streak, duration, ts: Date.now() });
   if (all[mode].length > HISTORY_MAX) all[mode] = all[mode].slice(0, HISTORY_MAX);
-  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(all)); } catch {}
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(all)); } catch(e) {}
 }
 
-// ── Graph rendering ─────────────────────────────────────────
+// ── Graph ───────────────────────────────────────────────────
 let histActiveMode = 'static';
 
 function buildHistTabs() {
@@ -1463,10 +1456,10 @@ function buildHistTabs() {
   RANKED_MODES.forEach(m => {
     const b = document.createElement('button');
     b.className = 'hist-tab' + (m === histActiveMode ? ' active' : '');
-    b.textContent = m.toUpperCase();
+    b.textContent = m === 'switchtrack' ? 'SW.TRK' : m.toUpperCase();
     b.onclick = () => {
       histActiveMode = m;
-      document.querySelectorAll('.hist-tab').forEach(t => t.classList.toggle('active', t.textContent === m.toUpperCase()));
+      document.querySelectorAll('.hist-tab').forEach(t => t.classList.toggle('active', t === b));
       drawHistory();
     };
     tabs.appendChild(b);
@@ -1479,11 +1472,10 @@ function drawHistory() {
   if (!canvas) return;
 
   const all     = loadHistory();
-  const entries = (all[histActiveMode] || []).slice().reverse(); // oldest first
+  const entries = (all[histActiveMode] || []).slice().reverse(); // oldest→newest
   const ctx     = canvas.getContext('2d');
 
-  // Resize canvas to match CSS width
-  canvas.width  = canvas.offsetWidth || 600;
+  canvas.width  = canvas.offsetWidth || 560;
   canvas.height = 160;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -1495,44 +1487,48 @@ function drawHistory() {
   if (emptyEl) emptyEl.style.display = 'none';
   canvas.style.display = 'block';
 
-  const W      = canvas.width;
-  const H      = canvas.height;
-  const pad    = { t:16, r:16, b:28, l:44 };
-  const gW     = W - pad.l - pad.r;
-  const gH     = H - pad.t - pad.b;
+  const W = canvas.width, H = canvas.height;
+  const pad = { t:16, r:20, b:28, l:48 };
+  const gW  = W - pad.l - pad.r;
+  const gH  = H - pad.t - pad.b;
   const scores = entries.map(e => e.score);
   const maxS   = Math.max(...scores, 1);
   const n      = entries.length;
 
-  // Accent colour from CSS variable
   const accent = getComputedStyle(document.documentElement)
     .getPropertyValue('--accent').trim() || '#00f5ff';
 
   const xOf = i => pad.l + (n === 1 ? gW / 2 : (i / (n - 1)) * gW);
   const yOf = s => pad.t + gH - (s / maxS) * gH;
 
-  // Grid lines
-  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-  ctx.lineWidth   = 1;
+  // Grid lines + Y labels
+  ctx.lineWidth = 1;
   [0, 0.25, 0.5, 0.75, 1].forEach(f => {
     const y = pad.t + gH * (1 - f);
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
     ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
-    // Y labels
-    ctx.fillStyle = 'rgba(255,255,255,0.25)';
-    ctx.font      = '9px Rajdhani, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    ctx.font = '9px Rajdhani, sans-serif';
     ctx.textAlign = 'right';
-    ctx.fillText(Math.round(maxS * f).toLocaleString(), pad.l - 5, y + 3);
+    ctx.fillText(Math.round(maxS * f).toLocaleString(), pad.l - 6, y + 3);
   });
 
-  // Gradient fill under the line
+  // Gradient fill
   const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + gH);
-  grad.addColorStop(0,   accent.replace(')', ', 0.35)').replace('rgb', 'rgba'));
-  grad.addColorStop(1,   accent.replace(')', ', 0)').replace('rgb', 'rgba'));
+  // Convert accent hex to rgba for gradient
+  const hexToRgba = (hex, a) => {
+    const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+    return `rgba(${r},${g},${b},${a})`;
+  };
+  const accentClean = accent.length === 7 ? accent : '#00f5ff';
+  grad.addColorStop(0,   hexToRgba(accentClean, 0.3));
+  grad.addColorStop(1,   hexToRgba(accentClean, 0.0));
+
   ctx.beginPath();
   ctx.moveTo(xOf(0), yOf(scores[0]));
   entries.forEach((e, i) => { if (i > 0) ctx.lineTo(xOf(i), yOf(e.score)); });
   ctx.lineTo(xOf(n - 1), pad.t + gH);
-  ctx.lineTo(xOf(0),     pad.t + gH);
+  ctx.lineTo(xOf(0), pad.t + gH);
   ctx.closePath();
   ctx.fillStyle = grad;
   ctx.fill();
@@ -1541,84 +1537,93 @@ function drawHistory() {
   ctx.beginPath();
   ctx.moveTo(xOf(0), yOf(scores[0]));
   entries.forEach((e, i) => { if (i > 0) ctx.lineTo(xOf(i), yOf(e.score)); });
-  ctx.strokeStyle = accent;
-  ctx.lineWidth   = 2;
-  ctx.lineJoin    = 'round';
+  ctx.strokeStyle = accentClean;
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
   ctx.stroke();
 
-  // Dots + tooltips on hover (stored in canvas dataset for mousemove)
-  const points = entries.map((e, i) => ({ x: xOf(i), y: yOf(e.score), score: e.score, acc: e.accuracy }));
-  canvas.dataset.points = JSON.stringify(points);
+  // Dots
+  const pts = entries.map((e, i) => ({ x:xOf(i), y:yOf(e.score), score:e.score, acc:e.accuracy, streak:e.streak }));
+  canvas.dataset.histPts = JSON.stringify(pts);
 
-  points.forEach(p => {
+  pts.forEach(p => {
     ctx.beginPath();
     ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
-    ctx.fillStyle   = accent;
+    ctx.fillStyle   = accentClean;
     ctx.strokeStyle = '#05070f';
     ctx.lineWidth   = 2;
-    ctx.fill();
-    ctx.stroke();
+    ctx.fill(); ctx.stroke();
   });
 
-  // X labels (session numbers)
-  ctx.fillStyle = 'rgba(255,255,255,0.25)';
-  ctx.font      = '9px Rajdhani, sans-serif';
+  // X labels
+  ctx.fillStyle = 'rgba(255,255,255,0.22)';
+  ctx.font = '9px Rajdhani, sans-serif';
   ctx.textAlign = 'center';
   entries.forEach((_, i) => {
-    if (n <= 10 || i % Math.ceil(n / 8) === 0) {
+    if (n <= 10 || i % Math.ceil(n / 8) === 0)
       ctx.fillText(i + 1, xOf(i), H - 6);
-    }
   });
 
-  // Best score line
-  const bestScore = Math.max(...scores);
-  const bestY     = yOf(bestScore);
+  // Best score dashed line
+  const bestY = yOf(Math.max(...scores));
   ctx.setLineDash([4, 4]);
-  ctx.strokeStyle = 'rgba(255,215,0,0.4)';
-  ctx.lineWidth   = 1;
+  ctx.strokeStyle = 'rgba(255,215,0,0.35)';
+  ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(pad.l, bestY); ctx.lineTo(W - pad.r, bestY); ctx.stroke();
   ctx.setLineDash([]);
-  ctx.fillStyle = 'rgba(255,215,0,0.6)';
-  ctx.font      = '9px Rajdhani, sans-serif';
+  ctx.fillStyle = 'rgba(255,215,0,0.55)';
+  ctx.font = '9px Rajdhani, sans-serif';
   ctx.textAlign = 'right';
   ctx.fillText('BEST', W - pad.r - 2, bestY - 3);
 }
 
-// Tooltip on hover
+// Tooltip on hover — only initialise once per canvas
+let _histTipEl = null;
+let _histTipBound = false;
+
 function initHistTooltip() {
   const canvas = document.getElementById('hist-canvas');
-  if (!canvas) return;
-  const tip = document.createElement('div');
-  tip.id = 'hist-tip';
-  tip.style.cssText = `position:fixed;background:rgba(5,7,15,0.9);border:1px solid rgba(0,245,255,0.3);
-    color:#e8eef8;font-size:11px;padding:4px 10px;border-radius:2px;pointer-events:none;
-    display:none;font-family:Rajdhani,sans-serif;letter-spacing:1px;z-index:999;white-space:nowrap;`;
-  document.body.appendChild(tip);
+  if (!canvas || _histTipBound) return;
+  _histTipBound = true;
+
+  if (!_histTipEl) {
+    _histTipEl = document.createElement('div');
+    _histTipEl.style.cssText = [
+      'position:fixed','background:rgba(5,7,15,0.92)',
+      'border:1px solid rgba(0,245,255,0.3)','color:#e8eef8',
+      'font-size:11px','padding:4px 10px','border-radius:2px',
+      'pointer-events:none','display:none',
+      'font-family:Rajdhani,sans-serif','letter-spacing:1px',
+      'z-index:9999','white-space:nowrap'
+    ].join(';');
+    document.body.appendChild(_histTipEl);
+  }
 
   canvas.addEventListener('mousemove', e => {
-    const pts = JSON.parse(canvas.dataset.points || '[]');
+    const pts = JSON.parse(canvas.dataset.histPts || '[]');
     if (!pts.length) return;
     const rect = canvas.getBoundingClientRect();
-    const mx   = e.clientX - rect.left;
-    const my   = e.clientY - rect.top;
-    const scaleX = canvas.width / rect.width;
-    const cx   = mx * scaleX;
-    const cy   = my * (canvas.height / rect.height);
-    const hit  = pts.find(p => Math.hypot(p.x - cx, p.y - cy) < 14);
+    const sx = canvas.width / rect.width;
+    const sy = canvas.height / rect.height;
+    const cx = (e.clientX - rect.left) * sx;
+    const cy = (e.clientY - rect.top)  * sy;
+    const hit = pts.find(p => Math.hypot(p.x - cx, p.y - cy) < 14);
     if (hit) {
-      tip.style.display = 'block';
-      tip.style.left    = (e.clientX + 12) + 'px';
-      tip.style.top     = (e.clientY - 28) + 'px';
-      tip.textContent   = `${hit.score.toLocaleString()} pts · ${hit.acc}% acc`;
+      _histTipEl.style.display = 'block';
+      _histTipEl.style.left = (e.clientX + 14) + 'px';
+      _histTipEl.style.top  = (e.clientY - 30) + 'px';
+      _histTipEl.textContent = `${hit.score.toLocaleString()} pts  ·  ${hit.acc}% acc  ·  ${hit.streak} streak`;
     } else {
-      tip.style.display = 'none';
+      _histTipEl.style.display = 'none';
     }
   });
-  canvas.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+  canvas.addEventListener('mouseleave', () => {
+    if (_histTipEl) _histTipEl.style.display = 'none';
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
-//  SHARE CARD  — generates a 600×340 image and downloads it
+//  SHARE CARD — generates 600×340 PNG and downloads it
 // ═══════════════════════════════════════════════════════════
 function shareResult() {
   const canvas = document.getElementById('share-canvas');
@@ -1634,43 +1639,48 @@ function shareResult() {
   // Subtle grid
   ctx.strokeStyle = 'rgba(0,245,255,0.04)';
   ctx.lineWidth = 1;
-  for (let x = 0; x < W; x += 50) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
-  for (let y = 0; y < H; y += 50) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  for (let x = 0; x < W; x += 50) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 50) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+
+  // Read accent from CSS
+  const accentHex = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#00f5ff';
 
   // Top accent bar
-  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#00f5ff';
-  ctx.fillStyle = accent;
+  ctx.fillStyle = accentHex;
   ctx.fillRect(0, 0, W, 3);
 
-  // Logo
-  ctx.font      = 'bold 28px Orbitron, monospace';
-  ctx.fillStyle = accent;
+  // AIMO wordmark
+  ctx.font      = 'bold 26px Orbitron, monospace';
+  ctx.fillStyle = accentHex;
   ctx.textAlign = 'left';
-  ctx.fillText('AIMLAB', 28, 46);
+  ctx.fillText('AIMO', 28, 44);
 
-  // Mode badge
-  const modeLabel = document.getElementById('mode-label-hud')?.textContent || selectedMode.toUpperCase();
+  // Mode + duration line
+  const modeLabel = (document.getElementById('mode-label-hud')?.textContent || selectedMode).toUpperCase();
   ctx.font      = '11px Rajdhani, sans-serif';
-  ctx.fillStyle = 'rgba(255,255,255,0.35)';
-  ctx.fillText('PRECISION TRAINING SYSTEM  ·  ' + modeLabel + ' MODE  ·  ' + selectedDuration + 's', 28, 64);
+  ctx.fillStyle = 'rgba(255,255,255,0.32)';
+  ctx.fillText('AIM TRAINER  ·  ' + modeLabel + ' MODE  ·  ' + selectedDuration + 's', 28, 62);
 
   // Divider
-  ctx.fillStyle = 'rgba(255,255,255,0.08)';
-  ctx.fillRect(28, 74, W - 56, 1);
+  ctx.fillStyle = 'rgba(255,255,255,0.07)';
+  ctx.fillRect(28, 72, W - 56, 1);
 
-  // Rank icon + name
+  // Rank icon + name + username
   const rankIcon = document.getElementById('result-rank-icon')?.textContent || '🩶';
   const rankName = document.getElementById('result-rank-name')?.textContent || 'IRON';
-  ctx.font = '48px serif';
-  ctx.fillText(rankIcon, 28, 136);
-  ctx.font      = 'bold 18px Orbitron, monospace';
-  ctx.fillStyle = accent;
-  ctx.fillText(rankName, 86, 118);
+  ctx.font = '44px serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(rankIcon, 28, 130);
+
+  ctx.font      = 'bold 17px Orbitron, monospace';
+  ctx.fillStyle = accentHex;
+  ctx.fillText(rankName, 84, 114);
+
   ctx.font      = '12px Rajdhani, sans-serif';
   ctx.fillStyle = 'rgba(255,255,255,0.4)';
-  ctx.fillText(currentProfile?.username || '', 86, 138);
+  ctx.fillText(currentProfile?.username || '', 84, 132);
 
-  // Stats grid (2 × 3)
+  // Stats grid 3×2
   const stats = [
     { label:'SCORE',       val: document.getElementById('final-score')?.textContent    || '0'  },
     { label:'ACCURACY',    val: document.getElementById('final-accuracy')?.textContent || '—'  },
@@ -1681,34 +1691,36 @@ function shareResult() {
   ];
   const colW = (W - 56) / 3;
   stats.forEach((s, i) => {
-    const col  = i % 3;
-    const row  = Math.floor(i / 3);
-    const cx   = 28 + col * colW;
-    const cy   = 170 + row * 72;
+    const col = i % 3, row = Math.floor(i / 3);
+    const cx  = 28 + col * colW;
+    const cy  = 162 + row * 76;
 
+    // Card bg
     ctx.fillStyle = 'rgba(255,255,255,0.04)';
-    roundRect(ctx, cx, cy, colW - 8, 60, 3);
+    roundRect(ctx, cx, cy, colW - 8, 64, 3);
     ctx.fill();
 
+    // Value
     ctx.font      = 'bold 22px Orbitron, monospace';
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
-    ctx.fillText(s.val, cx + (colW - 8) / 2, cy + 34);
+    ctx.fillText(s.val, cx + (colW - 8) / 2, cy + 36);
 
+    // Label
     ctx.font      = '10px Rajdhani, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.fillText(s.label, cx + (colW - 8) / 2, cy + 50);
+    ctx.fillStyle = 'rgba(255,255,255,0.32)';
+    ctx.fillText(s.label, cx + (colW - 8) / 2, cy + 53);
   });
 
   // Footer
   ctx.font      = '10px Rajdhani, sans-serif';
-  ctx.fillStyle = 'rgba(255,255,255,0.2)';
+  ctx.fillStyle = 'rgba(255,255,255,0.18)';
   ctx.textAlign = 'right';
-  ctx.fillText('aimlab.vercel.app  ·  ' + new Date().toLocaleDateString(), W - 28, H - 12);
+  ctx.fillText('aimo.gg  ·  ' + new Date().toLocaleDateString(), W - 28, H - 12);
 
   // Download
-  const link  = document.createElement('a');
-  link.download = 'aimlab-result.png';
+  const link    = document.createElement('a');
+  link.download = 'aimo-result.png';
   link.href     = canvas.toDataURL('image/png');
   link.click();
 }
@@ -1716,13 +1728,9 @@ function shareResult() {
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x + w, y,     x + w, y + r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h);
-  ctx.quadraticCurveTo(x, y + h,     x, y + h - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y,         x + r, y);
+  ctx.lineTo(x + w - r, y);   ctx.quadraticCurveTo(x + w, y,     x + w, y + r);
+  ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);   ctx.quadraticCurveTo(x, y + h,     x, y + h - r);
+  ctx.lineTo(x, y + r);       ctx.quadraticCurveTo(x, y,          x + r, y);
   ctx.closePath();
 }
