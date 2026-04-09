@@ -3,7 +3,9 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
-<title>AIMLAB | Precision Training System</title>
+<title>AIMO | Precision Aim Trainer</title>
+<meta name="description" content="AIMO — the world's best browser-based aim trainer. Train flicking, tracking, reaction time and more."/>
+<meta name="theme-color" content="#00f5ff"/>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;500;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css"/>
 </head>
@@ -16,8 +18,32 @@
   <div class="auth-bg-grid"></div>
   <div class="auth-container">
     <div class="logo-wrap">
-      <div class="logo-eyebrow">PRECISION TRAINING SYSTEM</div>
-      <h1 class="logo">AIMLAB</h1>
+      <!-- AIMO Logo SVG -->
+      <div class="aimo-logo-wrap">
+        <svg class="aimo-logo-svg" viewBox="0 0 220 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <!-- Triangle icon -->
+          <defs>
+            <linearGradient id="triGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#00c8ff"/>
+              <stop offset="50%" stop-color="#6b5fff"/>
+              <stop offset="100%" stop-color="#c044ff"/>
+            </linearGradient>
+            <filter id="glow"><feGaussianBlur stdDeviation="1.5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+          </defs>
+          <!-- Outer triangle -->
+          <path d="M32 6 L60 58 L4 58 Z" fill="url(#triGrad)" opacity="0.9" filter="url(#glow)"/>
+          <!-- Inner dark cut -->
+          <path d="M32 18 L52 54 L12 54 Z" fill="#05070f" opacity="0.7"/>
+          <!-- Inner triangle accent -->
+          <path d="M32 30 L46 54 L18 54 Z" fill="url(#triGrad)" opacity="0.5"/>
+          <!-- Left slash -->
+          <path d="M20 58 L30 18 L26 58 Z" fill="#05070f" opacity="0.8"/>
+          <!-- AIMO wordmark -->
+          <text x="70" y="44" font-family="Orbitron,monospace" font-size="26" font-weight="900" fill="white" letter-spacing="3">AIMO</text>
+          <!-- Tagline -->
+          <text x="70" y="58" font-family="Rajdhani,sans-serif" font-size="8.5" fill="rgba(255,255,255,0.38)" letter-spacing="4">PRECISION AIM TRAINER</text>
+        </svg>
+      </div>
       <div class="logo-line"></div>
     </div>
     <div class="auth-tabs">
@@ -45,7 +71,22 @@
   <div class="menu-container">
 
     <div class="logo-wrap small">
-      <h1 class="logo sm">AIMLAB</h1>
+      <div class="aimo-logo-wrap small">
+        <svg class="aimo-logo-svg sm" viewBox="0 0 160 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="triGrad2" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#00c8ff"/>
+              <stop offset="50%" stop-color="#6b5fff"/>
+              <stop offset="100%" stop-color="#c044ff"/>
+            </linearGradient>
+          </defs>
+          <path d="M18 3 L34 33 L2 33 Z" fill="url(#triGrad2)" opacity="0.9"/>
+          <path d="M18 11 L29 31 L7 31 Z" fill="#05070f" opacity="0.7"/>
+          <path d="M18 18 L27 31 L9 31 Z" fill="url(#triGrad2)" opacity="0.45"/>
+          <path d="M11 33 L17 11 L15 33 Z" fill="#05070f" opacity="0.8"/>
+          <text x="42" y="25" font-family="Orbitron,monospace" font-size="18" font-weight="900" fill="white" letter-spacing="2">AIMO</text>
+        </svg>
+      </div>
       <div class="logo-line"></div>
     </div>
 
@@ -363,12 +404,11 @@
 
     <div class="result-buttons">
       <button class="btn-primary" onclick="startGame()"><span>▶ PLAY AGAIN</span></button>
-      <button class="btn-ghost" onclick="shareResult()">📤 SHARE RESULT</button>
+      <button class="btn-ghost share-btn" onclick="shareResult()">📤 SHARE RESULT</button>
       <button class="btn-ghost" onclick="showLeaderboard()">🏆 LEADERBOARD</button>
       <button class="btn-ghost" onclick="showScreen('menu-screen')">MENU</button>
     </div>
-    <!-- Hidden canvas used to generate the share image -->
-    <canvas id="share-canvas" width="600" height="340" style="display:none;position:absolute;left:-9999px"></canvas>
+    <canvas id="share-canvas" width="600" height="340" style="display:none;position:absolute;left:-9999px;top:-9999px"></canvas>
   </div>
 </div>
 
