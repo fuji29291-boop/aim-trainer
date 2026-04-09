@@ -18,10 +18,8 @@
   <div class="auth-bg-grid"></div>
   <div class="auth-container">
     <div class="logo-wrap">
-      <!-- AIMO Logo SVG -->
       <div class="aimo-logo-wrap">
         <svg class="aimo-logo-svg" viewBox="0 0 220 80" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <!-- Triangle icon -->
           <defs>
             <linearGradient id="triGrad" x1="0" y1="0" x2="1" y2="1">
               <stop offset="0%" stop-color="#00c8ff"/>
@@ -30,17 +28,11 @@
             </linearGradient>
             <filter id="glow"><feGaussianBlur stdDeviation="1.5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
           </defs>
-          <!-- Outer triangle -->
           <path d="M32 6 L60 58 L4 58 Z" fill="url(#triGrad)" opacity="0.9" filter="url(#glow)"/>
-          <!-- Inner dark cut -->
           <path d="M32 18 L52 54 L12 54 Z" fill="#05070f" opacity="0.7"/>
-          <!-- Inner triangle accent -->
           <path d="M32 30 L46 54 L18 54 Z" fill="url(#triGrad)" opacity="0.5"/>
-          <!-- Left slash -->
           <path d="M20 58 L30 18 L26 58 Z" fill="#05070f" opacity="0.8"/>
-          <!-- AIMO wordmark -->
           <text x="70" y="44" font-family="Orbitron,monospace" font-size="26" font-weight="900" fill="white" letter-spacing="3">AIMO</text>
-          <!-- Tagline -->
           <text x="70" y="58" font-family="Rajdhani,sans-serif" font-size="8.5" fill="rgba(255,255,255,0.38)" letter-spacing="4">PRECISION AIM TRAINER</text>
         </svg>
       </div>
@@ -66,9 +58,30 @@
   </div>
 </div>
 
+<!-- Inside #tab-login, after the LOGIN button -->
+<button class="btn-ghost full-w guest-btn" onclick="playAsGuest()">🎮 PLAY AS GUEST (OFFLINE)</button>
+
+<!-- Inside #tab-register, after the CREATE ACCOUNT button -->
+<button class="btn-ghost full-w guest-btn" onclick="playAsGuest()">🎮 PLAY AS GUEST (OFFLINE)</button>
+
 <!-- ═══ MENU ═══ -->
 <div id="menu-screen" class="screen">
   <div class="menu-container">
+
+    <!-- Daily Challenge Card -->
+    <div class="daily-challenge-card" id="daily-challenge-card">
+      <div class="daily-header">
+        <span class="daily-icon">📅</span>
+        <span class="daily-title">DAILY CHALLENGE</span>
+        <span class="daily-status" id="daily-status">🔒</span>
+      </div>
+      <div class="daily-desc" id="daily-desc">Loading...</div>
+      <div class="daily-progress">
+        <div class="daily-progress-track"><div class="daily-progress-fill" id="daily-progress-fill"></div></div>
+        <span id="daily-progress-text">0/0</span>
+      </div>
+      <button class="btn-primary daily-btn" onclick="startDailyChallenge()"><span>▶ START DAILY</span></button>
+    </div>
 
     <div class="logo-wrap small">
       <div class="aimo-logo-wrap small">
@@ -117,6 +130,11 @@
     <div class="mode-select">
       <div class="section-label">SELECT MODE</div>
       <div class="mode-grid">
+        <button class="mode-card" onclick="selectMode('gridshot')" id="mode-gridshot">
+        <div class="mode-card-icon">⬛</div>
+        <div class="mode-card-name">GRIDSHOT</div>
+        <div class="mode-card-desc">3x3 speed accuracy</div>
+        </button>
         <button class="mode-card active" onclick="selectMode('static')" id="mode-static">
           <div class="mode-card-icon">⊕</div>
           <div class="mode-card-name">STATIC</div>
@@ -186,6 +204,7 @@
               <label>Crosshair Style</label>
               <div class="xhair-row">
                 <button class="xhair-btn active" data-xhair="classic" onclick="setCrosshair('classic')">Classic</button>
+                <button class="xhair-btn" data-xhair="custom" onclick="openCrosshairEditor()">✎ Custom</button>
                 <button class="xhair-btn" data-xhair="dot" onclick="setCrosshair('dot')">Dot</button>
                 <button class="xhair-btn" data-xhair="circle" onclick="setCrosshair('circle')">Circle</button>
                 <button class="xhair-btn" data-xhair="gap" onclick="setCrosshair('gap')">Gap</button>
@@ -229,6 +248,26 @@
       </div>
     </div>
 
+
+         <!-- Accessibility -->
+<div class="setting-row">
+  <label>Accessibility</label>
+  <div class="access-row">
+    <select id="colorblind-select" onchange="setColorblindMode(this.value)">
+      <option value="none">None</option>
+      <option value="protanopia">Protanopia (Red-Weak)</option>
+      <option value="deuteranopia">Deuteranopia (Green-Weak)</option>
+      <option value="tritanopia">Tritanopia (Blue-Weak)</option>
+    </select>
+  </div>
+  <div class="access-row">
+    <label><input type="checkbox" id="high-contrast" onchange="toggleHighContrast(this.checked)"> High Contrast Mode</label>
+  </div>
+  <div class="access-row">
+    <label><input type="checkbox" id="reduced-motion" onchange="toggleReducedMotion(this.checked)"> Reduced Motion</label>
+  </div>
+</div>
+
     <!-- Duration Picker -->
     <div class="duration-pick">
       <div class="section-label">SESSION LENGTH</div>
@@ -243,9 +282,10 @@
     <button class="btn-primary start-btn" onclick="startGame()"><span>▶ START TRAINING</span></button>
 
     <div class="menu-bottom">
-      <button class="btn-ghost" onclick="showLeaderboard()">🏆 LEADERBOARD</button>
-      <button class="btn-ghost" onclick="showProfile()">👤 PROFILE</button>
-      <button class="btn-ghost" onclick="logout()">LOGOUT</button>
+      <button class="btn-ghost offline-indicator" id="offline-indicator" style="display:none;">📴 OFFLINE MODE</button>
+      <button class="btn-ghost" onclick="showLeaderboard()" id="menu-leaderboard-btn">🏆 LEADERBOARD</button>
+                <button class="btn-ghost" onclick="showProfile()" id="menu-profile-btn">👤 PROFILE</button>
+                <button class="btn-ghost" onclick="logout()" id="menu-logout-btn">LOGOUT</button>
     </div>
   </div>
 </div>
@@ -361,6 +401,26 @@
   </div>
   <div id="game-area">
     <div id="miss-flash"></div>
+  </div>
+</div>
+
+<!-- ═══ CROSSHAIR EDITOR MODAL ═══ -->
+<div id="crosshair-editor-modal" class="modal" style="display:none;">
+  <div class="modal-content">
+    <h3>Custom Crosshair</h3>
+    <div class="xhair-preview" id="xhair-preview"></div>
+    <div class="editor-grid">
+      <label>Length: <input type="range" id="custom-length" min="4" max="40" value="18" step="1"></label>
+      <label>Thickness: <input type="range" id="custom-thickness" min="1" max="8" value="2" step="1"></label>
+      <label>Gap: <input type="range" id="custom-gap" min="0" max="20" value="0" step="1"></label>
+      <label>Dot Size: <input type="range" id="custom-dot" min="0" max="10" value="3" step="1"></label>
+      <label>Opacity: <input type="range" id="custom-opacity" min="0.2" max="1" value="1" step="0.1"></label>
+      <label>Color: <input type="color" id="custom-color" value="#00f5ff"></label>
+    </div>
+    <div class="modal-buttons">
+      <button class="btn-primary" onclick="applyCustomCrosshair()">Apply</button>
+      <button class="btn-ghost" onclick="closeCrosshairEditor()">Cancel</button>
+    </div>
   </div>
 </div>
 
