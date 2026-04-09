@@ -47,6 +47,7 @@
       <div class="input-wrap"><input type="password" id="login-password" placeholder="Password" autocomplete="current-password"/></div>
       <div id="login-error" class="form-error"></div>
       <button class="btn-primary full-w" onclick="login()"><span>LOGIN</span></button>
+      <button class="btn-ghost full-w guest-btn" onclick="playAsGuest()">🎮 PLAY AS GUEST (OFFLINE)</button>
     </div>
     <div id="tab-register" class="auth-form" style="display:none">
       <div class="input-wrap"><input type="text" id="reg-username" placeholder="Callsign (shown on leaderboard)" maxlength="16" autocomplete="off"/></div>
@@ -54,15 +55,10 @@
       <div class="input-wrap"><input type="password" id="reg-password" placeholder="Password (min 6 chars)" autocomplete="new-password"/></div>
       <div id="register-error" class="form-error"></div>
       <button class="btn-primary full-w" onclick="register()"><span>CREATE ACCOUNT</span></button>
+      <button class="btn-ghost full-w guest-btn" onclick="playAsGuest()">🎮 PLAY AS GUEST (OFFLINE)</button>
     </div>
   </div>
 </div>
-
-<!-- Inside #tab-login, after the LOGIN button -->
-<button class="btn-ghost full-w guest-btn" onclick="playAsGuest()">🎮 PLAY AS GUEST (OFFLINE)</button>
-
-<!-- Inside #tab-register, after the CREATE ACCOUNT button -->
-<button class="btn-ghost full-w guest-btn" onclick="playAsGuest()">🎮 PLAY AS GUEST (OFFLINE)</button>
 
 <!-- ═══ MENU ═══ -->
 <div id="menu-screen" class="screen">
@@ -131,9 +127,9 @@
       <div class="section-label">SELECT MODE</div>
       <div class="mode-grid">
         <button class="mode-card" onclick="selectMode('gridshot')" id="mode-gridshot">
-        <div class="mode-card-icon">⬛</div>
-        <div class="mode-card-name">GRIDSHOT</div>
-        <div class="mode-card-desc">3x3 speed accuracy</div>
+          <div class="mode-card-icon">⬛</div>
+          <div class="mode-card-name">GRIDSHOT</div>
+          <div class="mode-card-desc">3x3 speed accuracy</div>
         </button>
         <button class="mode-card active" onclick="selectMode('static')" id="mode-static">
           <div class="mode-card-icon">⊕</div>
@@ -245,28 +241,27 @@
             <button class="theme-btn" data-theme="orange" onclick="setTheme('orange')">ORANGE</button>
           </div>
         </div>
+
+        <!-- Accessibility -->
+        <div class="setting-row">
+          <label>Accessibility</label>
+          <div class="access-row">
+            <select id="colorblind-select" onchange="setColorblindMode(this.value)">
+              <option value="none">None</option>
+              <option value="protanopia">Protanopia (Red-Weak)</option>
+              <option value="deuteranopia">Deuteranopia (Green-Weak)</option>
+              <option value="tritanopia">Tritanopia (Blue-Weak)</option>
+            </select>
+          </div>
+          <div class="access-row">
+            <label><input type="checkbox" id="high-contrast" onchange="toggleHighContrast(this.checked)"> High Contrast Mode</label>
+          </div>
+          <div class="access-row">
+            <label><input type="checkbox" id="reduced-motion" onchange="toggleReducedMotion(this.checked)"> Reduced Motion</label>
+          </div>
+        </div>
       </div>
     </div>
-
-
-         <!-- Accessibility -->
-<div class="setting-row">
-  <label>Accessibility</label>
-  <div class="access-row">
-    <select id="colorblind-select" onchange="setColorblindMode(this.value)">
-      <option value="none">None</option>
-      <option value="protanopia">Protanopia (Red-Weak)</option>
-      <option value="deuteranopia">Deuteranopia (Green-Weak)</option>
-      <option value="tritanopia">Tritanopia (Blue-Weak)</option>
-    </select>
-  </div>
-  <div class="access-row">
-    <label><input type="checkbox" id="high-contrast" onchange="toggleHighContrast(this.checked)"> High Contrast Mode</label>
-  </div>
-  <div class="access-row">
-    <label><input type="checkbox" id="reduced-motion" onchange="toggleReducedMotion(this.checked)"> Reduced Motion</label>
-  </div>
-</div>
 
     <!-- Duration Picker -->
     <div class="duration-pick">
@@ -284,8 +279,8 @@
     <div class="menu-bottom">
       <button class="btn-ghost offline-indicator" id="offline-indicator" style="display:none;">📴 OFFLINE MODE</button>
       <button class="btn-ghost" onclick="showLeaderboard()" id="menu-leaderboard-btn">🏆 LEADERBOARD</button>
-                <button class="btn-ghost" onclick="showProfile()" id="menu-profile-btn">👤 PROFILE</button>
-                <button class="btn-ghost" onclick="logout()" id="menu-logout-btn">LOGOUT</button>
+      <button class="btn-ghost" onclick="showProfile()" id="menu-profile-btn">👤 PROFILE</button>
+      <button class="btn-ghost" onclick="logout()" id="menu-logout-btn">LOGOUT</button>
     </div>
   </div>
 </div>
@@ -333,6 +328,7 @@
       <div class="prof-mode-row"><span>⁂ SWITCHING</span><span id="prof-best-switching">—</span><span id="prof-rank-switching" class="mode-rank-badge">—</span></div>
       <div class="prof-mode-row"><span>◈ REACTION</span><span id="prof-best-reaction">—</span><span id="prof-rank-reaction" class="mode-rank-badge">—</span></div>
       <div class="prof-mode-row"><span>🎯 SW.TRACK</span><span id="prof-best-switchtrack">—</span><span id="prof-rank-switchtrack" class="mode-rank-badge">—</span></div>
+      <div class="prof-mode-row"><span>⬛ GRIDSHOT</span><span id="prof-best-gridshot">—</span><span id="prof-rank-gridshot" class="mode-rank-badge">—</span></div>
       <div class="prof-mode-row training-row"><span>〜 TRACE</span><span id="prof-best-trace">TRAINING</span><span class="mode-rank-badge muted">NO RANK</span></div>
     </div>
 
@@ -368,6 +364,7 @@
       <button class="lb-tab" onclick="switchLbMode('switching')">SWITCHING</button>
       <button class="lb-tab" onclick="switchLbMode('reaction')">REACTION</button>
       <button class="lb-tab" onclick="switchLbMode('switchtrack')">SW.TRACK</button>
+      <button class="lb-tab" onclick="switchLbMode('gridshot')">GRIDSHOT</button>
     </div>
     <div id="lb-list"><div class="lb-loading">FETCHING SCORES...</div></div>
     <button class="btn-ghost" onclick="showScreen('menu-screen')">← BACK</button>

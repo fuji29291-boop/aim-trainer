@@ -168,7 +168,15 @@ button:disabled, input:disabled, .xhair-btn:disabled, .diff-btn:disabled, .theme
 .menu-container {
   display:flex; flex-direction:column; align-items:center;
   gap:16px; padding:24px 16px; width:100%; max-width:720px;
+  max-height: 85vh;
+  overflow-y: auto;
+  padding-right: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--accent) transparent;
 }
+.menu-container::-webkit-scrollbar { width: 6px; }
+.menu-container::-webkit-scrollbar-track { background: transparent; }
+.menu-container::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 4px; }
 
 /* ── Player Badge ────────────────── */
 .player-badge {
@@ -749,7 +757,7 @@ input[type=range] { width:100%; accent-color:var(--accent); height:4px; }
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10000;
+  z-index: 100000 !important;
 }
 .modal-content {
   background: var(--surface2);
@@ -827,4 +835,13 @@ body.reduced-motion * {
   background: radial-gradient(circle at 35% 30%, #aaccff, #3366cc);
   border-color: #88aaff;
   box-shadow: 0 0 12px #88aaff;
+}
+
+/* Crosshair Editor Modal Fixes */
+#crosshair-editor-modal {
+  z-index: 99999 !important;
+  display: none;
+}
+#crosshair-editor-modal .modal-content {
+  background: var(--surface2);
 }

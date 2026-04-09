@@ -1,17 +1,4 @@
 // ═══════════════════════════════════════════════════════════
-//  EMERGENCY TOGGLE FUNCTION
-// ═══════════════════════════════════════════════════════════
-function toggleSettings() {
-  console.log('toggleSettings called'); // Add this line for debugging
-  const body = document.getElementById('settings-body');
-  const arrow = document.getElementById('settings-arrow');
-  if (!body) return;
-  const isHidden = body.style.display === 'none';
-  body.style.display = isHidden ? 'block' : 'none';
-  if (arrow) arrow.textContent = isHidden ? '▲' : '▼';
-}
-
-// ═══════════════════════════════════════════════════════════
 //  AIMO — COMPLETE SCRIPT
 //  NEW FEATURES:
 //  - Offline Mode (Guest)
