@@ -1,23 +1,18 @@
 // ═══════════════════════════════════════════════════════════
 //  AIMO — COMPLETE SCRIPT
-//  Bugs fixed vs previous version:
-//  1. MAX_SCORE raised to match rank thresholds (was 15k, ranks go to 80k)
-//  2. Tracking hitbox now uses live element position, not stale spawn coords
-//  3. streak reset in startGame (was missing in inline version)
-//  4. reactionMax unified to 10 (was split between 5 and 10)
-//  5. fetchModeRank now queries profiles table (was scores — gave duplicates)
-//  6. Leaderboard queries profiles — one row per player, deduplicated at DB level
-//  7. stopTraceMode called on endGame properly in all paths
-//  8. Double-endGame guard (isGameRunning check at top)
-//  9. Tracking targets can't stack at border (clamped before bounce)
-//  10. Anti-cheat session time reduced to 24s (30s game - 1s buffer)
+//  NEW FEATURES:
+//  - Offline Mode (Guest)
+//  - Daily Challenges
+//  - Gridshot Mode
+//  - Custom Crosshair Editor
+//  - Colorblind & Accessibility Options
 // ═══════════════════════════════════════════════════════════
 
 const SUPABASE_URL = 'https://wncodurkmacfkubnhyhi.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_egPhfy4nWgh5Ci0_RGnMhQ_1rJ8J-_k';
 
 // ═══════════════════════════════════════════════════════════
-//  RANKS — thresholds match realistic 30s game scores
+//  RANKS
 // ═══════════════════════════════════════════════════════════
 const RANKS = [
   { name:'IRON',     icon:'🩶', min:0      },
@@ -48,45 +43,74 @@ function getRankProgress(score) {
 // ═══════════════════════════════════════════════════════════
 //  CONSTANTS
 // ═══════════════════════════════════════════════════════════
-const RANKED_MODES   = ['static','flick','tracking','switching','reaction','switchtrack'];
+const RANKED_MODES   = ['static','flick','tracking','switching','reaction','switchtrack','gridshot'];
 const HUD_HEIGHT     = 58;
-
-// Anti-cheat: these are generous but physically impossible to exceed
-// Static: ~1 target/0.9s * 30s = 33 targets * 300pts max = ~10000
-// Flick:  1.5x multiplier so ~15000
-// Reaction: 10 rounds * 2500 max = 25000
 const MAX_SCORE_PER_MODE = {
-  static: 14000, flick: 19000, tracking: 16000, switching: 16000, reaction: 26000, switchtrack: 19000, trace: 999999
+  static: 14000, flick: 19000, tracking: 16000, switching: 16000, reaction: 26000, switchtrack: 19000,
+  gridshot: 20000, trace: 999999
 };
 const MAX_HITS       = 200;
-const MIN_MS_PER_HIT = 100; // human physiological limit ~80ms, give margin
+const MIN_MS_PER_HIT = 100;
 
 // ═══════════════════════════════════════════════════════════
-//  SETTINGS
+//  SETTINGS (with localStorage persistence)
 // ═══════════════════════════════════════════════════════════
 const settings = {
   size: 60, speed: 5, spawn: 900,
   sound: true, crosshair: 'classic', xhairColor: '#00f5ff',
-  difficulty: 'medium', theme: 'cyan'
+  difficulty: 'medium', theme: 'cyan',
+  customCrosshair: null,
+  colorblind: 'none',
+  highContrast: false,
+  reducedMotion: false
 };
+
+function saveSettings() {
+  try { localStorage.setItem('aimo_settings', JSON.stringify(settings)); } catch(e) {}
+}
+
+function loadSettings() {
+  try {
+    const saved = localStorage.getItem('aimo_settings');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      Object.assign(settings, parsed);
+      document.getElementById('setting-size').value = settings.size;
+      document.getElementById('size-val').textContent = settings.size;
+      document.getElementById('setting-speed').value = settings.speed;
+      document.getElementById('speed-val').textContent = settings.speed;
+      document.getElementById('setting-spawn').value = settings.spawn;
+      document.getElementById('spawn-val').textContent = settings.spawn;
+      const soundBtn = document.getElementById('sound-toggle');
+      if (soundBtn) {
+        soundBtn.textContent = settings.sound ? 'ON' : 'OFF';
+        soundBtn.classList.toggle('off', !settings.sound);
+      }
+      setCrosshair(settings.crosshair);
+      setXhairColor(settings.xhairColor);
+      setDifficulty(settings.difficulty);
+      setTheme(settings.theme);
+      if (settings.colorblind) setColorblindMode(settings.colorblind);
+      if (settings.highContrast) document.body.classList.add('high-contrast');
+      if (settings.reducedMotion) document.body.classList.add('reduced-motion');
+    }
+  } catch(e) {}
+}
 
 function updateSetting(key, val) {
   settings[key] = Number(val);
   const el = document.getElementById(key + '-val');
   if (el) el.textContent = val;
+  saveSettings();
 }
-function toggleSettings() {
-  const body  = document.getElementById('settings-body');
-  const arrow = document.getElementById('settings-arrow');
-  const open  = body.style.display === 'none';
-  body.style.display = open ? 'block' : 'none';
-  if (arrow) arrow.textContent = open ? '▲' : '▼';
-}
+
 function toggleSound() {
   settings.sound = !settings.sound;
   const btn = document.getElementById('sound-toggle');
   if (btn) { btn.textContent = settings.sound ? 'ON' : 'OFF'; btn.classList.toggle('off', !settings.sound); }
+  saveSettings();
 }
+
 function setTheme(t) {
   settings.theme = t;
   [...document.body.classList].forEach(c => {
@@ -94,10 +118,11 @@ function setTheme(t) {
   });
   if (t !== 'cyan') document.body.classList.add('theme-' + t);
   document.querySelectorAll('.theme-btn').forEach(b => b.classList.toggle('active', b.dataset.theme === t));
+  saveSettings();
 }
 
 // ═══════════════════════════════════════════════════════════
-//  SOUND ENGINE (Web Audio API — no files needed)
+//  SOUND ENGINE
 // ═══════════════════════════════════════════════════════════
 let audioCtx = null;
 function getAudio() {
@@ -153,19 +178,120 @@ let traceTargetX=0, traceTargetY=0, traceChangeTimer=0;
 let traceMouseX=0, traceMouseY=0;
 let traceOnFrames=0, traceTotalFrames=0;
 
+// Gridshot state
+let gridshotCells = [];
+let gridshotIndex = 0;
+
 const TRACE_DIFF = {
   easy:   { baseSpeed:1.4, maxSpeed:2.2, turnRate:0.018, size:80, maxDist:55, ppf:2  },
   medium: { baseSpeed:2.8, maxSpeed:4.5, turnRate:0.030, size:60, maxDist:40, ppf:4  },
   hard:   { baseSpeed:5.0, maxSpeed:8.0, turnRate:0.045, size:44, maxDist:28, ppf:7  },
 };
 
-// Avatars
 const AVATARS = ['🎯','⚡','👾','🔥','💀','🦅','🐉','🦊','🤖','👻','🦁','🐺','🧠','👑','💎','🔮','🌀','⚔️','🛸','🎮'];
+
+// ═══════════════════════════════════════════════════════════
+//  OFFLINE MODE (GUEST)
+// ═══════════════════════════════════════════════════════════
+let isOfflineMode = false;
+let offlineProfile = null;
+const OFFLINE_PROFILE_KEY = 'aimo_offline_profile';
+const OFFLINE_SCORES_KEY = 'aimo_offline_scores';
+
+function playAsGuest() {
+  isOfflineMode = true;
+  try {
+    offlineProfile = JSON.parse(localStorage.getItem(OFFLINE_PROFILE_KEY));
+  } catch(e) { offlineProfile = null; }
+  if (!offlineProfile) {
+    offlineProfile = {
+      username: 'GUEST_' + Math.random().toString(36).substr(2,5).toUpperCase(),
+      best_score: 0,
+      total_hits: 0,
+      games_played: 0,
+      avatar: '🎮',
+      best_static:0, best_flick:0, best_tracking:0, best_switching:0,
+      best_reaction:0, best_switchtrack:0, best_gridshot:0
+    };
+    saveOfflineProfile();
+  }
+  currentProfile = offlineProfile;
+  currentUser = null;
+  document.getElementById('offline-indicator').style.display = 'inline-block';
+  document.getElementById('menu-leaderboard-btn').style.display = 'none';
+  document.getElementById('menu-profile-btn').style.display = 'none';
+  document.getElementById('menu-logout-btn').textContent = 'EXIT GUEST';
+  enterMenu();
+}
+
+function saveOfflineProfile() {
+  localStorage.setItem(OFFLINE_PROFILE_KEY, JSON.stringify(offlineProfile));
+}
+
+function saveOfflineScore(mode, scoreData) {
+  try {
+    let scores = JSON.parse(localStorage.getItem(OFFLINE_SCORES_KEY)) || [];
+    scores.push({...scoreData, mode, date: new Date().toISOString()});
+    if (scores.length > 50) scores = scores.slice(-50);
+    localStorage.setItem(OFFLINE_SCORES_KEY, JSON.stringify(scores));
+  } catch(e) {}
+}
+
+// ═══════════════════════════════════════════════════════════
+//  DAILY CHALLENGE
+// ═══════════════════════════════════════════════════════════
+let dailyChallenge = null;
+const DAILY_KEY = 'aimo_daily_challenge';
+
+function generateDailyChallenge() {
+  const today = new Date().toISOString().split('T')[0];
+  const stored = localStorage.getItem(DAILY_KEY);
+  let challenge;
+  if (stored) {
+    challenge = JSON.parse(stored);
+    if (challenge.date !== today) challenge = null;
+  }
+  if (!challenge) {
+    const modes = ['static','flick','tracking','switching','gridshot'];
+    const mode = modes[Math.floor(Math.random() * modes.length)];
+    const duration = [30,45,60][Math.floor(Math.random()*3)];
+    const targetScore = mode === 'gridshot' ? 45 : (mode === 'flick' ? 8000 : 6000);
+    challenge = {
+      date: today,
+      mode, duration, targetScore,
+      completed: false,
+      bestScore: 0
+    };
+    localStorage.setItem(DAILY_KEY, JSON.stringify(challenge));
+  }
+  dailyChallenge = challenge;
+  updateDailyUI();
+}
+
+function updateDailyUI() {
+  if (!dailyChallenge) return;
+  const modeNames = {static:'Static',flick:'Flick',tracking:'Tracking',switching:'Switching',gridshot:'Gridshot'};
+  document.getElementById('daily-desc').textContent = 
+    `${modeNames[dailyChallenge.mode]} · ${dailyChallenge.duration}s · Target: ${dailyChallenge.targetScore} pts`;
+  const pct = Math.min(100, (dailyChallenge.bestScore / dailyChallenge.targetScore) * 100);
+  document.getElementById('daily-progress-fill').style.width = pct + '%';
+  document.getElementById('daily-progress-text').textContent = `${dailyChallenge.bestScore}/${dailyChallenge.targetScore}`;
+  const status = dailyChallenge.completed ? '✅' : (dailyChallenge.bestScore >= dailyChallenge.targetScore ? '🎉' : '🔒');
+  document.getElementById('daily-status').textContent = status;
+}
+
+function startDailyChallenge() {
+  if (!dailyChallenge) generateDailyChallenge();
+  selectedMode = dailyChallenge.mode;
+  selectedDuration = dailyChallenge.duration;
+  startGame();
+}
 
 // ═══════════════════════════════════════════════════════════
 //  SUPABASE
 // ═══════════════════════════════════════════════════════════
 async function supabase(path, opts = {}, token = null) {
+  if (isOfflineMode) return { ok: false, data: { message: 'Offline mode' } };
   try {
     const res = await fetch(SUPABASE_URL + path, {
       ...opts,
@@ -188,6 +314,7 @@ async function supabase(path, opts = {}, token = null) {
 // ═══════════════════════════════════════════════════════════
 async function fetchGlobalRank(score) {
   if (!score || score <= 0) return null;
+  if (isOfflineMode) return null;
   try {
     const { ok, data } = await supabase(`/rest/v1/profiles?best_score=gt.${score}&select=id&limit=2000`);
     if (ok && Array.isArray(data)) return data.length + 1;
@@ -195,9 +322,9 @@ async function fetchGlobalRank(score) {
   return null;
 }
 
-// FIX: query profiles.best_{mode} not scores table (no duplicates)
 async function fetchModeRank(mode, userScore) {
   if (!userScore || userScore <= 0) return null;
+  if (isOfflineMode) return null;
   const col = 'best_' + mode;
   try {
     const { ok, data } = await supabase(`/rest/v1/profiles?${col}=gt.${userScore}&select=id&limit=2000`);
@@ -224,12 +351,10 @@ async function register() {
     if (!email.includes('@'))             throw new Error('Enter a valid email.');
     if (password.length < 6)             throw new Error('Password must be at least 6 characters.');
 
-    // Check username taken
     const check = await supabase(`/rest/v1/profiles?username=eq.${encodeURIComponent(username)}&select=id`, {}, SUPABASE_KEY);
     if (check.ok && Array.isArray(check.data) && check.data.length > 0)
       throw new Error('Username already taken. Choose another.');
 
-    // Create auth user
     const auth = await supabase('/auth/v1/signup', { method:'POST', body:JSON.stringify({ email, password }) }, SUPABASE_KEY);
     if (!auth.ok || !auth.data?.user?.id)
       throw new Error(auth.data?.msg || auth.data?.error_description || 'Registration failed.');
@@ -238,13 +363,18 @@ async function register() {
 
     const profData = {
       id:uid, username, best_score:0, total_hits:0, games_played:0, avatar:'🎯',
-      best_static:0, best_flick:0, best_tracking:0, best_switching:0, best_reaction:0, best_switchtrack:0
+      best_static:0, best_flick:0, best_tracking:0, best_switching:0, best_reaction:0, best_switchtrack:0, best_gridshot:0
     };
     const profRes = await supabase('/rest/v1/profiles', { method:'POST', body:JSON.stringify(profData) }, token);
     if (!profRes.ok) throw new Error('Account created but profile save failed. Try logging in.');
 
     currentUser    = { id:uid, access_token:token, email };
     currentProfile = profData;
+    isOfflineMode = false;
+    document.getElementById('offline-indicator').style.display = 'none';
+    document.getElementById('menu-leaderboard-btn').style.display = 'inline-block';
+    document.getElementById('menu-profile-btn').style.display = 'inline-block';
+    document.getElementById('menu-logout-btn').textContent = 'LOGOUT';
     await enterMenu();
   } catch(e) {
     errEl.textContent = e.message;
@@ -278,13 +408,16 @@ async function login() {
     if (!prof.ok || !prof.data?.length) throw new Error('Profile not found. Please re-register.');
 
     currentProfile = prof.data[0];
-
-    // Back-fill missing best_* columns for old accounts (including new modes)
     for (const m of RANKED_MODES) {
       if (currentProfile['best_' + m] === undefined) currentProfile['best_' + m] = 0;
     }
     if (!currentProfile.avatar) currentProfile.avatar = '🎯';
 
+    isOfflineMode = false;
+    document.getElementById('offline-indicator').style.display = 'none';
+    document.getElementById('menu-leaderboard-btn').style.display = 'inline-block';
+    document.getElementById('menu-profile-btn').style.display = 'inline-block';
+    document.getElementById('menu-logout-btn').textContent = 'LOGOUT';
     await enterMenu();
   } catch(e) {
     errEl.textContent = e.message;
@@ -295,8 +428,19 @@ async function login() {
 }
 
 function logout() {
-  currentUser = null; currentProfile = null;
-  showScreen('auth-screen');
+  if (isOfflineMode) {
+    isOfflineMode = false;
+    offlineProfile = null;
+    currentProfile = null;
+    showScreen('auth-screen');
+    document.getElementById('offline-indicator').style.display = 'none';
+    document.getElementById('menu-leaderboard-btn').style.display = 'inline-block';
+    document.getElementById('menu-profile-btn').style.display = 'inline-block';
+    document.getElementById('menu-logout-btn').textContent = 'LOGOUT';
+  } else {
+    currentUser = null; currentProfile = null;
+    showScreen('auth-screen');
+  }
 }
 
 async function enterMenu() {
@@ -312,11 +456,15 @@ async function enterMenu() {
   const fillEl = document.getElementById('badge-rank-fill');
   if (fillEl) fillEl.style.width = prog.pct + '%';
 
-  // Fetch global rank async (don't block menu)
-  fetchGlobalRank(currentProfile.best_score).then(r => {
-    _setEl('badge-global-rank', r ? '🌍 #' + r : '');
-  });
+  if (!isOfflineMode) {
+    fetchGlobalRank(currentProfile.best_score).then(r => {
+      _setEl('badge-global-rank', r ? '🌍 #' + r : '');
+    });
+  } else {
+    _setEl('badge-global-rank', '📴 OFFLINE');
+  }
 
+  generateDailyChallenge();
   showScreen('menu-screen');
 }
 
@@ -337,7 +485,6 @@ async function showProfile() {
   _setEl('prof-best',            (p.best_score||0).toLocaleString());
   _setEl('prof-avatar',          p.avatar||'🎯');
 
-  // Progress bar
   const fillEl = document.getElementById('prof-progress-fill');
   if (fillEl) fillEl.style.width = prog.pct + '%';
   _setEl('prof-cur-rank',       rank.icon + ' ' + rank.name);
@@ -345,29 +492,34 @@ async function showProfile() {
   _setEl('prof-progress-label', prog.next ? `${(p.best_score||0).toLocaleString()} / ${prog.next.min.toLocaleString()}` : 'MAX RANK');
   _setEl('prof-progress-sub',   prog.next ? `${prog.pct}% — ${prog.pointsNeeded.toLocaleString()} pts to ${prog.next.name}` : 'You have reached the highest rank!');
 
-  _setEl('prof-global', 'LOADING...');
-  fetchGlobalRank(p.best_score).then(r => {
-    _setEl('prof-global', r ? '🌍 GLOBAL RANK #' + r : '🌍 GLOBAL RANK —');
-  });
+  if (!isOfflineMode) {
+    _setEl('prof-global', 'LOADING...');
+    fetchGlobalRank(p.best_score).then(r => {
+      _setEl('prof-global', r ? '🌍 GLOBAL RANK #' + r : '🌍 GLOBAL RANK —');
+    });
+  } else {
+    _setEl('prof-global', '📴 OFFLINE MODE');
+  }
 
-  // Per-mode bests + rank
   for (const mode of RANKED_MODES) {
     const ms = p['best_' + mode] || 0;
     _setEl('prof-best-' + mode, ms > 0 ? ms.toLocaleString() : '—');
-    _setEl('prof-rank-' + mode, '...');
-    if (ms > 0) {
-      fetchModeRank(mode, ms).then(r => {
-        _setEl('prof-rank-' + mode, r ? '#' + r : '—');
-      });
+    if (!isOfflineMode) {
+      _setEl('prof-rank-' + mode, '...');
+      if (ms > 0) {
+        fetchModeRank(mode, ms).then(r => {
+          _setEl('prof-rank-' + mode, r ? '#' + r : '—');
+        });
+      } else {
+        _setEl('prof-rank-' + mode, '—');
+      }
     } else {
-      _setEl('prof-rank-' + mode, '—');
+      _setEl('prof-rank-' + mode, '📴');
     }
   }
   _setEl('prof-best-trace', '—');
 
-  // Build avatar picker
   buildAvatarPicker();
-  // Score history graph
   buildHistTabs();
   drawHistory();
   initHistTooltip();
@@ -392,15 +544,18 @@ function toggleAvatarPicker() {
 }
 
 async function setAvatar(emoji) {
-  if (!currentUser) return;
+  if (!currentUser && !isOfflineMode) return;
   currentProfile.avatar = emoji;
   _setEl('prof-avatar', emoji);
   _setEl('badge-avatar', emoji);
   document.querySelectorAll('.avatar-opt').forEach(b => b.classList.toggle('active', b.textContent === emoji));
-  // Save to DB
-  await supabase(`/rest/v1/profiles?id=eq.${currentUser.id}`, {
-    method:'PATCH', body:JSON.stringify({ avatar: emoji })
-  });
+  if (isOfflineMode) {
+    saveOfflineProfile();
+  } else {
+    await supabase(`/rest/v1/profiles?id=eq.${currentUser.id}`, {
+      method:'PATCH', body:JSON.stringify({ avatar: emoji })
+    });
+  }
   const picker = document.getElementById('avatar-picker');
   if (picker) picker.classList.remove('open');
 }
@@ -437,17 +592,29 @@ function _setEl(id, val) {
 // ═══════════════════════════════════════════════════════════
 //  GAME START
 // ═══════════════════════════════════════════════════════════
-function startGame() {
-  if (!currentUser || !currentProfile) return showScreen('auth-screen');
+function disableSettingsInputs(disable) {
+  const inputs = document.querySelectorAll('#settings-body input, #settings-body button, .dur-btn, .mode-card, .settings-title');
+  inputs.forEach(el => el.disabled = disable);
+}
 
-  // Full reset
+function startGame() {
+  if (!currentProfile) {
+    if (isOfflineMode) {
+      playAsGuest();
+    } else {
+      return showScreen('auth-screen');
+    }
+  }
+
+  disableSettingsInputs(true);
+
   score = 0; hits = 0; misses = 0; timeLeft = selectedDuration;
   streak = 0; bestStreak = 0; lastHitTime = 0;
   hitTimestamps = []; reactionTimes = [];
   sessionStartTime = Date.now();
   isGameRunning = true;
 
-  stopTracking(); stopTraceMode();
+  stopTracking(); stopTraceMode(); stopSwitchTracking();
   clearGameArea(); updateHUD();
 
   showScreen('game-screen');
@@ -462,8 +629,8 @@ function startGame() {
   if (selectedMode === 'reaction')    { startReactionMode();    return; }
   if (selectedMode === 'trace')       { startTraceMode();       return; }
   if (selectedMode === 'switchtrack') { startSwitchTracking(); return; }
+  if (selectedMode === 'gridshot')    { startGridshot();        return; }
 
-  // Standard timer
   gameTimer = setInterval(() => {
     timeLeft--;
     const td = document.getElementById('timer-display');
@@ -472,16 +639,91 @@ function startGame() {
     if (timeLeft <= 0) endGame();
   }, 1000);
 
-  // Mode spawn intervals
   const intervals = { static: settings.spawn, flick: 1200, tracking: 2200, switching: 650 };
   const interval  = intervals[selectedMode] || settings.spawn;
   spawnTimer = setInterval(spawnTarget, interval);
-  spawnTarget(); // immediate first spawn
+  spawnTarget();
 
   if (selectedMode === 'tracking') startTracking();
   if (selectedMode === 'switching') {
     setTimeout(spawnTarget, 200);
     setTimeout(spawnTarget, 450);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  GRIDSHOT MODE
+// ═══════════════════════════════════════════════════════════
+function startGridshot() {
+  const ga = document.getElementById('game-area');
+  const W = ga.offsetWidth, H = ga.offsetHeight;
+  const cellW = W / 3, cellH = (H - HUD_HEIGHT) / 3;
+  gridshotCells = [];
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 3; col++) {
+      gridshotCells.push({
+        x: col * cellW + cellW/2,
+        y: HUD_HEIGHT + row * cellH + cellH/2
+      });
+    }
+  }
+  gridshotIndex = 0;
+  spawnGridshotTarget();
+
+  gameTimer = setInterval(() => {
+    timeLeft--;
+    const td = document.getElementById('timer-display');
+    if (td) td.textContent = timeLeft;
+    if (timeLeft <= 5) { if (td) td.classList.add('urgent'); playCountdown(); }
+    if (timeLeft <= 0) endGame();
+  }, 1000);
+}
+
+function spawnGridshotTarget() {
+  if (!isGameRunning || selectedMode !== 'gridshot') return;
+  clearGameArea();
+  const ga = document.getElementById('game-area');
+  const pos = gridshotCells[gridshotIndex % gridshotCells.length];
+  const sz = settings.size;
+  const target = document.createElement('div');
+  target.className = 'target gridshot';
+  target.style.cssText = `width:${sz}px;height:${sz}px;left:${pos.x}px;top:${pos.y}px`;
+  target.innerHTML = '<div class="target-inner"></div>';
+  target.addEventListener('mousedown', e => {
+    e.stopPropagation();
+    handleGridshotHit(target);
+  });
+  ga.appendChild(target);
+}
+
+function handleGridshotHit(el) {
+  if (!isGameRunning) return;
+  const now = Date.now();
+  const timeSinceLast = lastHitTime ? (now - lastHitTime) : 9999;
+  hitTimestamps.push(now);
+  lastHitTime = now;
+  streak++;
+  if (streak > bestStreak) bestStreak = streak;
+  let points = 100 + Math.max(0, 150 - Math.floor(timeSinceLast / 2));
+  points = Math.round(points * (1 + Math.min(0.5, Math.floor(streak/5)*0.1)));
+  hits++; score += points; updateHUD();
+  playHit();
+  const rect = el.getBoundingClientRect();
+  const gaRect = document.getElementById('game-area').getBoundingClientRect();
+  const x = rect.left - gaRect.left + rect.width/2;
+  const y = rect.top - gaRect.top + rect.height/2;
+  showScorePopup(x, y, '+' + points, false);
+  if (streak >= 3) showStreakLabel(x, y + 38);
+  showHitRing(x, y);
+  el.remove();
+  gridshotIndex++;
+  spawnGridshotTarget();
+
+  const sEl = document.getElementById('hud-streak');
+  const sCount = document.getElementById('streak-count');
+  if (sEl && sCount) {
+    if (streak >= 3) { sEl.style.display = 'block'; sCount.textContent = streak; }
+    else { sEl.style.display = 'none'; }
   }
 }
 
@@ -498,17 +740,15 @@ function startTracking() {
     document.querySelectorAll('.target.tracking').forEach(t => {
       let angle = parseFloat(t.dataset.angle) || 0;
       let spd   = parseFloat(t.dataset.spd)   || 3;
-      // FIX: use parseInt(style) for live position, not spawn coords
       let x = parseFloat(t.style.left);
       let y = parseFloat(t.style.top);
       const r = settings.size / 2 + 4;
 
-      angle += (Math.random() - 0.5) * 0.05; // gentle curve
+      angle += (Math.random() - 0.5) * 0.05;
 
       x += Math.cos(angle) * spd;
       y += Math.sin(angle) * spd;
 
-      // FIX: clamp before bounce to prevent sticking at walls
       if (x < r)   { x = r;   angle = Math.PI - angle + (Math.random()-0.5)*0.3; }
       if (x > W-r) { x = W-r; angle = Math.PI - angle + (Math.random()-0.5)*0.3; }
       if (y < HUD_HEIGHT+r) { y = HUD_HEIGHT+r; angle = -angle + (Math.random()-0.5)*0.3; }
@@ -560,7 +800,7 @@ function nextReaction() {
   _setEl('reaction-time', '');
   clearGameArea();
 
-  const delay = 800 + Math.random() * 2200; // 0.8–3s, unpredictable
+  const delay = 800 + Math.random() * 2200;
   reactionTimeout = setTimeout(() => {
     if (!isGameRunning) return;
     const ga = document.getElementById('game-area');
@@ -612,9 +852,8 @@ function addReactionPill(text) {
 //  SPAWN TARGET
 // ═══════════════════════════════════════════════════════════
 function spawnTarget() {
-  if (!isGameRunning || selectedMode === 'reaction' || selectedMode === 'trace' || selectedMode === 'switchtrack') return;
+  if (!isGameRunning || selectedMode === 'reaction' || selectedMode === 'trace' || selectedMode === 'switchtrack' || selectedMode === 'gridshot') return;
 
-  // Cap tracking targets at 3 simultaneously
   if (selectedMode === 'tracking' && document.querySelectorAll('.target.tracking').length >= 3) return;
 
   const ga = document.getElementById('game-area');
@@ -623,7 +862,6 @@ function spawnTarget() {
   const x  = Math.random() * (ga.offsetWidth  - margin*2) + margin;
   const y  = Math.random() * (ga.offsetHeight - margin*2 - HUD_HEIGHT) + margin + HUD_HEIGHT;
 
-  // Switching: rotate which target is priority
   if (selectedMode === 'switching') {
     document.querySelectorAll('.target.priority').forEach(t => t.classList.remove('priority'));
     const existing = document.querySelectorAll('.target.switching');
@@ -645,10 +883,8 @@ function spawnTarget() {
 
   target.innerHTML = '<div class="target-inner"></div>';
 
-  // FIX: use mousedown (not click) for faster response
   target.addEventListener('mousedown', e => {
     e.stopPropagation();
-    // FIX for tracking: get LIVE position from element, not stale spawn coords
     const rect  = target.getBoundingClientRect();
     const gaRect = ga.getBoundingClientRect();
     const liveX  = rect.left - gaRect.left + rect.width / 2;
@@ -658,10 +894,8 @@ function spawnTarget() {
 
   ga.appendChild(target);
 
-  // TTLs: flick is very short, tracking never auto-removes
   const ttl = { static:2400, flick:650, tracking:99999, switching:3000 }[selectedMode] || 2400;
 
-  // Shrink ring for flick mode (visual countdown)
   if (selectedMode === 'flick') {
     const ring = document.createElement('div');
     ring.className = 'shrink-ring';
@@ -693,18 +927,15 @@ function hitTarget(el, x, y) {
   let bonusText = null;
   const isPriority = el.classList.contains('priority');
 
-  // Speed bonus
   if (timeSinceLast < 350)       { points += 120; bonusText = '+120 FAST!'; }
   else if (timeSinceLast < 650)  { points += 60;  bonusText = '+60 QUICK';  }
 
-  // Mode multipliers
   if (selectedMode === 'flick')        points = Math.round(points * 1.8);
   if (selectedMode === 'tracking')     points = Math.round(points * 1.5);
   if (selectedMode === 'switchtrack' && isPriority)  { points = Math.round(points * 2.2); bonusText = '+LOCK!'; }
   if (selectedMode === 'switchtrack' && !isPriority) { points = Math.round(points * 0.5); }
   if (selectedMode === 'switching' && isPriority) { points += 200; bonusText = '+200 PRIORITY!'; }
 
-  // Streak multiplier: every 5 hits = +10% up to +60%
   const streakMult = 1 + Math.min(0.6, Math.floor(streak / 5) * 0.1);
   points = Math.round(points * streakMult);
 
@@ -719,7 +950,6 @@ function hitTarget(el, x, y) {
   showHitRing(x, y);
   el.remove();
 
-  // Update streak HUD
   const sEl = document.getElementById('hud-streak');
   const sCount = document.getElementById('streak-count');
   if (sEl && sCount) {
@@ -755,13 +985,12 @@ function missClick(e) {
   const flash = document.getElementById('miss-flash');
   if (flash) { flash.classList.add('active'); setTimeout(() => flash.classList.remove('active'), 150); }
 
-  // Hide streak HUD on miss
   const sEl = document.getElementById('hud-streak');
   if (sEl) sEl.style.display = 'none';
 }
 
 // ═══════════════════════════════════════════════════════════
-//  VALIDATE (anti-cheat)
+//  VALIDATE
 // ═══════════════════════════════════════════════════════════
 function validateScore() {
   if (selectedMode === 'trace') return { valid:false, reason:'TRACE IS TRAINING ONLY — not ranked' };
@@ -781,7 +1010,6 @@ function validateScore() {
       return { valid:false, reason:'Inhuman click speed detected' };
   }
 
-  // Bug 1 fix: reaction + switchtrack have 0 misses by design — skip accuracy check
   if (selectedMode !== 'reaction' && selectedMode !== 'switchtrack') {
     const total = hits + misses;
     if (total > 5 && hits / total > 0.999)
@@ -795,12 +1023,14 @@ function validateScore() {
 //  END GAME
 // ═══════════════════════════════════════════════════════════
 async function endGame() {
-  if (!isGameRunning) return; // FIX: guard against double-call
+  if (!isGameRunning) return;
   isGameRunning = false;
+
+  disableSettingsInputs(false);
 
   clearInterval(gameTimer); clearInterval(spawnTimer);
   clearTimeout(reactionTimeout);
-  stopTracking(); stopTraceMode(); stopSwitchTracking(); // FIX: always clean up all
+  stopTracking(); stopTraceMode(); stopSwitchTracking();
   clearGameArea();
 
   const ov = document.getElementById('reaction-overlay');
@@ -830,7 +1060,6 @@ async function endGame() {
   const mrEl = document.getElementById('result-mode-rank');
   if (mrEl) mrEl.style.display = 'none';
 
-  // Rank progress bar
   const prog  = getRankProgress(score);
   const rpEl  = document.getElementById('result-rank-progress');
   if (rpEl) rpEl.style.display = 'block';
@@ -853,6 +1082,46 @@ async function endGame() {
     return;
   }
 
+  // Update daily challenge
+  if (dailyChallenge && selectedMode === dailyChallenge.mode && selectedDuration === dailyChallenge.duration) {
+    if (score > dailyChallenge.bestScore) {
+      dailyChallenge.bestScore = score;
+      if (score >= dailyChallenge.targetScore) dailyChallenge.completed = true;
+      localStorage.setItem(DAILY_KEY, JSON.stringify(dailyChallenge));
+      updateDailyUI();
+    }
+  }
+
+  if (isOfflineMode) {
+    const modeCol = 'best_' + selectedMode;
+    const newBest = Math.max(score, currentProfile.best_score || 0);
+    const newModeBest = Math.max(score, currentProfile[modeCol] || 0);
+    const newHits = (currentProfile.total_hits || 0) + hits;
+    const newGames = (currentProfile.games_played || 0) + 1;
+
+    currentProfile.best_score = newBest;
+    currentProfile.total_hits = newHits;
+    currentProfile.games_played = newGames;
+    currentProfile[modeCol] = newModeBest;
+    saveOfflineProfile();
+    saveOfflineScore(selectedMode, { score, accuracy, hits, bestStreak, duration: selectedDuration });
+
+    const rankUpd = getRank(newBest);
+    const progUpd = getRankProgress(newBest);
+    _setEl('badge-best', 'Best: ' + newBest.toLocaleString());
+    _setEl('badge-rank-icon', rankUpd.icon);
+    _setEl('badge-rank-name', rankUpd.name);
+    const bfEl = document.getElementById('badge-rank-fill');
+    if (bfEl) bfEl.style.width = progUpd.pct + '%';
+    _setEl('badge-rank-next', progUpd.next ? progUpd.pointsNeeded.toLocaleString() + ' pts → ' + progUpd.next.name : '✦ MAX RANK');
+
+    statusEl.textContent = '✓ SCORE SAVED LOCALLY (OFFLINE)';
+    statusEl.className = 'submit-status success';
+    saveToHistory(selectedMode, score, accuracy, hits, bestStreak, selectedDuration);
+    return;
+  }
+
+  // Online submission
   try {
     const ins = await supabase('/rest/v1/scores', {
       method:'POST',
@@ -874,7 +1143,6 @@ async function endGame() {
     currentProfile.games_played  = newGames;
     currentProfile[modeCol]      = newModeBest;
 
-    // Update menu badge live
     const rankUpd = getRank(newBest);
     const progUpd = getRankProgress(newBest);
     _setEl('badge-best',      'Best: ' + newBest.toLocaleString());
@@ -885,10 +1153,8 @@ async function endGame() {
     _setEl('badge-rank-next', progUpd.next ? progUpd.pointsNeeded.toLocaleString() + ' pts → ' + progUpd.next.name : '✦ MAX RANK');
 
     statusEl.textContent = '✓ SCORE SUBMITTED'; statusEl.className = 'submit-status success';
-    // Save locally for the history graph
     saveToHistory(selectedMode, score, accuracy, hits, bestStreak, selectedDuration);
 
-    // Show mode rank
     const modeRank = await fetchModeRank(selectedMode, score);
     if (modeRank) {
       const mrEl = document.getElementById('result-mode-rank');
@@ -898,7 +1164,6 @@ async function endGame() {
       }
     }
 
-    // Update global rank badge
     const globalR = await fetchGlobalRank(newBest);
     if (globalR) _setEl('badge-global-rank', '🌍 #' + globalR);
 
@@ -909,9 +1174,13 @@ async function endGame() {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  LEADERBOARD — queries profiles (one row per player)
+//  LEADERBOARD
 // ═══════════════════════════════════════════════════════════
 async function showLeaderboard() {
+  if (isOfflineMode) {
+    alert('Leaderboard not available in offline mode.');
+    return;
+  }
   showScreen('leaderboard-screen');
   loadLeaderboard();
 }
@@ -924,6 +1193,7 @@ function switchLbMode(mode) {
 }
 
 async function loadLeaderboard() {
+  if (isOfflineMode) return;
   const list       = document.getElementById('lb-list');
   const yourRankEl = document.getElementById('lb-your-rank');
   const yourRankNm = document.getElementById('lb-your-rank-num');
@@ -933,7 +1203,6 @@ async function loadLeaderboard() {
   const modeCol = 'best_' + currentLbTab;
 
   try {
-    // FIX: query profiles table directly — one row per player, deduplicated at DB level
     const { ok, data } = await supabase(
       `/rest/v1/profiles?select=username,${modeCol},games_played,avatar&${modeCol}=gt.0&order=${modeCol}.desc&limit=50`
     );
@@ -965,7 +1234,6 @@ async function loadLeaderboard() {
         </div>`;
       }).join('')}`;
 
-    // Show your rank
     const myPos = data.findIndex(r => r.username === myName);
     if (myPos !== -1 && yourRankEl && yourRankNm) {
       yourRankNm.textContent = '#' + (myPos + 1);
@@ -997,7 +1265,7 @@ function startTraceMode() {
   const rect = ga.getBoundingClientRect();
 
   traceX = rect.width / 2; traceY = rect.height / 2;
-  traceMouseX = rect.width / 2; traceMouseY = rect.height / 2; // FIX: init to center not 0,0
+  traceMouseX = rect.width / 2; traceMouseY = rect.height / 2;
   traceAngle = Math.random() * Math.PI * 2;
   traceSpeed = diff.baseSpeed;
   traceOnFrames = 0; traceTotalFrames = 0; traceChangeTimer = 0;
@@ -1115,6 +1383,7 @@ function stopTraceMode() {
 //  CROSSHAIR
 // ═══════════════════════════════════════════════════════════
 let _xhairEl = null;
+let customCrosshairParams = { length: 18, thickness: 2, gap: 0, dotSize: 3, opacity: 1, color: '#00f5ff' };
 
 const XHAIRS = {
   classic: (c) => `
@@ -1149,34 +1418,144 @@ function initCrosshair() {
     _xhairEl.id = 'custom-crosshair';
     document.body.appendChild(_xhairEl);
   }
-  // Promote to GPU layer immediately — eliminates all cursor lag
   _xhairEl.style.willChange = 'transform';
   _xhairEl.style.left = '0';
   _xhairEl.style.top  = '0';
   document.addEventListener('mousemove', e => {
     if (_xhairEl) {
-      // translate3d forces GPU compositing — zero layout reflow, zero lag
       _xhairEl.style.transform = `translate3d(${e.clientX - 16}px,${e.clientY - 16}px,0)`;
     }
   }, { passive: true });
+  document.addEventListener('mouseleave', () => {
+    if (_xhairEl) _xhairEl.style.opacity = '0';
+  });
+  document.addEventListener('mouseenter', () => {
+    if (_xhairEl) _xhairEl.style.opacity = '1';
+  });
   setCrosshair(settings.crosshair);
 }
 
 function setCrosshair(style) {
+  if (style === 'custom') {
+    openCrosshairEditor();
+    return;
+  }
   settings.crosshair = style;
   if (_xhairEl && XHAIRS[style]) _xhairEl.innerHTML = XHAIRS[style](settings.xhairColor);
   document.querySelectorAll('.xhair-btn').forEach(b => b.classList.toggle('active', b.dataset.xhair === style));
+  saveSettings();
 }
 
 function setXhairColor(color) {
   settings.xhairColor = color;
-  setCrosshair(settings.crosshair); // re-render with new color
+  if (settings.crosshair !== 'custom') setCrosshair(settings.crosshair);
   document.querySelectorAll('.color-btn').forEach(b => b.classList.toggle('active', b.dataset.color === color));
+  saveSettings();
 }
 
 function setDifficulty(d) {
   settings.difficulty = d;
   document.querySelectorAll('.diff-btn').forEach(b => b.classList.toggle('active', b.dataset.diff === d));
+  saveSettings();
+}
+
+function openCrosshairEditor() {
+  const modal = document.getElementById('crosshair-editor-modal');
+  modal.style.display = 'flex';
+  const saved = settings.customCrosshair;
+  if (saved) Object.assign(customCrosshairParams, saved);
+  document.getElementById('custom-length').value = customCrosshairParams.length;
+  document.getElementById('custom-thickness').value = customCrosshairParams.thickness;
+  document.getElementById('custom-gap').value = customCrosshairParams.gap;
+  document.getElementById('custom-dot').value = customCrosshairParams.dotSize;
+  document.getElementById('custom-opacity').value = customCrosshairParams.opacity;
+  document.getElementById('custom-color').value = customCrosshairParams.color;
+  updateCrosshairPreview();
+  ['length','thickness','gap','dot','opacity','color'].forEach(id => {
+    document.getElementById('custom-'+id).addEventListener('input', updateCrosshairPreview);
+  });
+}
+
+function updateCrosshairPreview() {
+  const p = {
+    length: +document.getElementById('custom-length').value,
+    thickness: +document.getElementById('custom-thickness').value,
+    gap: +document.getElementById('custom-gap').value,
+    dotSize: +document.getElementById('custom-dot').value,
+    opacity: +document.getElementById('custom-opacity').value,
+    color: document.getElementById('custom-color').value
+  };
+  customCrosshairParams = p;
+  document.getElementById('xhair-preview').innerHTML = generateCustomCrosshairHTML(p);
+}
+
+function generateCustomCrosshairHTML(p) {
+  const c = p.color;
+  const opacity = p.opacity;
+  const style = `style="position:absolute;background:${c};opacity:${opacity}"`;
+  const len = p.length, thick = p.thickness, gap = p.gap;
+  return `
+    <div ${style} style="width:${len}px;height:${thick}px;top:50%;left:50%;transform:translate(-50%,-50%) translateX(${gap}px)"></div>
+    <div ${style} style="width:${len}px;height:${thick}px;top:50%;left:50%;transform:translate(-50%,-50%) translateX(-${gap}px)"></div>
+    <div ${style} style="width:${thick}px;height:${len}px;top:50%;left:50%;transform:translate(-50%,-50%) translateY(${gap}px)"></div>
+    <div ${style} style="width:${thick}px;height:${len}px;top:50%;left:50%;transform:translate(-50%,-50%) translateY(-${gap}px)"></div>
+    ${p.dotSize > 0 ? `<div ${style} style="width:${p.dotSize}px;height:${p.dotSize}px;border-radius:50%;top:50%;left:50%;transform:translate(-50%,-50%)"></div>` : ''}
+  `;
+}
+
+function applyCustomCrosshair() {
+  settings.crosshair = 'custom';
+  settings.customCrosshair = {...customCrosshairParams};
+  if (_xhairEl) _xhairEl.innerHTML = generateCustomCrosshairHTML(customCrosshairParams);
+  closeCrosshairEditor();
+  saveSettings();
+  document.querySelectorAll('.xhair-btn').forEach(b => b.classList.remove('active'));
+}
+
+function closeCrosshairEditor() {
+  document.getElementById('crosshair-editor-modal').style.display = 'none';
+}
+
+// ═══════════════════════════════════════════════════════════
+//  COLORBLIND & ACCESSIBILITY
+// ═══════════════════════════════════════════════════════════
+function setColorblindMode(mode) {
+  settings.colorblind = mode;
+  const ga = document.getElementById('game-area');
+  const filters = {
+    protanopia: 'url(#protanopia)',
+    deuteranopia: 'url(#deuteranopia)',
+    tritanopia: 'url(#tritanopia)'
+  };
+  if (mode === 'none') {
+    if (ga) ga.style.filter = 'none';
+  } else {
+    if (!document.getElementById('cb-filters')) {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.id = 'cb-filters';
+      svg.style.display = 'none';
+      svg.innerHTML = `
+        <filter id="protanopia"><feColorMatrix type="matrix" values="0.567,0.433,0,0,0 0.558,0.442,0,0,0 0,0.242,0.758,0,0 0,0,0,1,0"/></filter>
+        <filter id="deuteranopia"><feColorMatrix type="matrix" values="0.625,0.375,0,0,0 0.7,0.3,0,0,0 0,0.3,0.7,0,0 0,0,0,1,0"/></filter>
+        <filter id="tritanopia"><feColorMatrix type="matrix" values="0.95,0.05,0,0,0 0,0.433,0.567,0,0 0,0.475,0.525,0,0 0,0,0,1,0"/></filter>
+      `;
+      document.body.appendChild(svg);
+    }
+    if (ga) ga.style.filter = filters[mode];
+  }
+  saveSettings();
+}
+
+function toggleHighContrast(enabled) {
+  document.body.classList.toggle('high-contrast', enabled);
+  settings.highContrast = enabled;
+  saveSettings();
+}
+
+function toggleReducedMotion(enabled) {
+  document.body.classList.toggle('reduced-motion', enabled);
+  settings.reducedMotion = enabled;
+  saveSettings();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1226,36 +1605,9 @@ function escHtml(s) {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  INIT
-// ═══════════════════════════════════════════════════════════
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && isGameRunning) endGame();
-});
-
-window.addEventListener('DOMContentLoaded', () => {
-  // Resume AudioContext on first user interaction (browser autoplay policy)
-  document.addEventListener('mousedown', () => { if (audioCtx && audioCtx.state==='suspended') audioCtx.resume(); }, { once:true });
-  initCrosshair();
-
-  // mousedown for miss — faster than click, same as hit detection
-  const ga = document.getElementById('game-area');
-  if (ga) {
-    ga.addEventListener('mousedown', e => {
-      if (!isGameRunning || selectedMode === 'trace') return;
-      missClick(e);
-    });
-  }
-
-  // Build avatar picker on profile open
-  // (handled in showProfile())
-});
-
-// ═══════════════════════════════════════════════════════════
 //  SWITCH TRACKING MODE
-//  Moving targets + priority rotation. Hit the glowing one.
-//  Combines tracking movement with switching priority system.
 // ═══════════════════════════════════════════════════════════
-const ST_TARGET_COUNT = 3; // targets alive simultaneously
+const ST_TARGET_COUNT = 3;
 const ST_SPEED_BASE   = 3.0;
 const ST_SPEED_VAR    = 1.8;
 
@@ -1267,16 +1619,13 @@ function startSwitchTracking() {
   const ga = document.getElementById('game-area');
   if (!ga) return;
 
-  // Spawn all 3 targets immediately
   for (let i = 0; i < ST_TARGET_COUNT; i++) {
     spawnSwitchTrackTarget(ga);
   }
 
-  // Give first one priority
   const all = document.querySelectorAll('.target.switchtrack');
   if (all.length > 0) all[0].classList.add('priority');
 
-  // Timer
   gameTimer = setInterval(() => {
     timeLeft--;
     const td = document.getElementById('timer-display');
@@ -1285,7 +1634,6 @@ function startSwitchTracking() {
     if (timeLeft <= 0) endGame();
   }, 1000);
 
-  // Movement loop (separate from spawnTarget's timer)
   moveSwitchTrackTargets(ga);
 }
 
@@ -1340,14 +1688,13 @@ function hitSwitchTrackTarget(el, x, y, ga) {
     points = Math.round(points * 2.2);
     bonusText = '🎯 LOCKED!';
     playPriorityHit();
-    hits++; // correct target — counts as hit
+    hits++;
   } else {
-    // Wrong target: penalty points, streak reset, counted as MISS for honest accuracy
     points = Math.round(points * 0.4);
     streak = 0;
     bonusText = '✗ WRONG';
     playMiss();
-    misses++; // Bug 5 fix: was hits++, inflating accuracy to 100%
+    misses++;
   }
 
   const streakMult = 1 + Math.min(0.6, Math.floor(streak / 5) * 0.1);
@@ -1361,7 +1708,6 @@ function hitSwitchTrackTarget(el, x, y, ga) {
   if (streak >= 3 && isPriority) showStreakLabel(x, y + 38);
   showHitRing(x, y);
 
-  // Update streak HUD
   const sEl = document.getElementById('hud-streak');
   const sCount = document.getElementById('streak-count');
   if (sEl && sCount) {
@@ -1369,21 +1715,17 @@ function hitSwitchTrackTarget(el, x, y, ga) {
     else             { sEl.style.display = 'none'; }
   }
 
-  // Remove the hit target
   el.remove();
 
-  // Spawn a replacement
   setTimeout(() => {
     if (!isGameRunning) return;
     const g = document.getElementById('game-area');
     if (g) {
       spawnSwitchTrackTarget(g);
-      // Assign priority to a random remaining target
       assignSwitchTrackPriority();
     }
   }, 150);
 
-  // Reassign priority among remaining
   assignSwitchTrackPriority();
 }
 
@@ -1407,7 +1749,7 @@ function moveSwitchTrackTargets(ga) {
     let y = parseFloat(t.style.top);
     const r = settings.size / 2 + 4;
 
-    angle += (Math.random() - 0.5) * 0.055; // organic curve
+    angle += (Math.random() - 0.5) * 0.055;
 
     x += Math.cos(angle) * spd;
     y += Math.sin(angle) * spd;
@@ -1427,8 +1769,7 @@ function moveSwitchTrackTargets(ga) {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  SCORE HISTORY  (localStorage, no backend needed)
-//  Stores last 20 sessions per mode.
+//  SCORE HISTORY
 // ═══════════════════════════════════════════════════════════
 const HISTORY_KEY = 'aimo_history_v1';
 const HISTORY_MAX = 20;
@@ -1446,7 +1787,6 @@ function saveToHistory(mode, score, accuracy, hits, streak, duration) {
   try { localStorage.setItem(HISTORY_KEY, JSON.stringify(all)); } catch(e) {}
 }
 
-// ── Graph ───────────────────────────────────────────────────
 let histActiveMode = 'static';
 
 function buildHistTabs() {
@@ -1472,7 +1812,7 @@ function drawHistory() {
   if (!canvas) return;
 
   const all     = loadHistory();
-  const entries = (all[histActiveMode] || []).slice().reverse(); // oldest→newest
+  const entries = (all[histActiveMode] || []).slice().reverse();
   const ctx     = canvas.getContext('2d');
 
   canvas.width  = canvas.offsetWidth || 560;
@@ -1501,8 +1841,6 @@ function drawHistory() {
   const xOf = i => pad.l + (n === 1 ? gW / 2 : (i / (n - 1)) * gW);
   const yOf = s => pad.t + gH - (s / maxS) * gH;
 
-  // Grid lines + Y labels
-  ctx.lineWidth = 1;
   [0, 0.25, 0.5, 0.75, 1].forEach(f => {
     const y = pad.t + gH * (1 - f);
     ctx.strokeStyle = 'rgba(255,255,255,0.05)';
@@ -1513,14 +1851,12 @@ function drawHistory() {
     ctx.fillText(Math.round(maxS * f).toLocaleString(), pad.l - 6, y + 3);
   });
 
-  // Gradient fill
-  const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + gH);
-  // Convert accent hex to rgba for gradient
   const hexToRgba = (hex, a) => {
     const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
     return `rgba(${r},${g},${b},${a})`;
   };
   const accentClean = accent.length === 7 ? accent : '#00f5ff';
+  const grad = ctx.createLinearGradient(0, pad.t, 0, pad.t + gH);
   grad.addColorStop(0,   hexToRgba(accentClean, 0.3));
   grad.addColorStop(1,   hexToRgba(accentClean, 0.0));
 
@@ -1533,7 +1869,6 @@ function drawHistory() {
   ctx.fillStyle = grad;
   ctx.fill();
 
-  // Line
   ctx.beginPath();
   ctx.moveTo(xOf(0), yOf(scores[0]));
   entries.forEach((e, i) => { if (i > 0) ctx.lineTo(xOf(i), yOf(e.score)); });
@@ -1542,7 +1877,6 @@ function drawHistory() {
   ctx.lineJoin = 'round';
   ctx.stroke();
 
-  // Dots
   const pts = entries.map((e, i) => ({ x:xOf(i), y:yOf(e.score), score:e.score, acc:e.accuracy, streak:e.streak }));
   canvas.dataset.histPts = JSON.stringify(pts);
 
@@ -1555,7 +1889,6 @@ function drawHistory() {
     ctx.fill(); ctx.stroke();
   });
 
-  // X labels
   ctx.fillStyle = 'rgba(255,255,255,0.22)';
   ctx.font = '9px Rajdhani, sans-serif';
   ctx.textAlign = 'center';
@@ -1564,7 +1897,6 @@ function drawHistory() {
       ctx.fillText(i + 1, xOf(i), H - 6);
   });
 
-  // Best score dashed line
   const bestY = yOf(Math.max(...scores));
   ctx.setLineDash([4, 4]);
   ctx.strokeStyle = 'rgba(255,215,0,0.35)';
@@ -1577,7 +1909,6 @@ function drawHistory() {
   ctx.fillText('BEST', W - pad.r - 2, bestY - 3);
 }
 
-// Tooltip on hover — only initialise once per canvas
 let _histTipEl = null;
 let _histTipBound = false;
 
@@ -1623,7 +1954,7 @@ function initHistTooltip() {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  SHARE CARD — generates 600×340 PNG and downloads it
+//  SHARE CARD
 // ═══════════════════════════════════════════════════════════
 function shareResult() {
   const canvas = document.getElementById('share-canvas');
@@ -1632,40 +1963,32 @@ function shareResult() {
   const W = 600, H = 340;
   ctx.clearRect(0, 0, W, H);
 
-  // Background
   ctx.fillStyle = '#05070f';
   ctx.fillRect(0, 0, W, H);
 
-  // Subtle grid
   ctx.strokeStyle = 'rgba(0,245,255,0.04)';
   ctx.lineWidth = 1;
   for (let x = 0; x < W; x += 50) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
   for (let y = 0; y < H; y += 50) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
 
-  // Read accent from CSS
   const accentHex = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#00f5ff';
 
-  // Top accent bar
   ctx.fillStyle = accentHex;
   ctx.fillRect(0, 0, W, 3);
 
-  // AIMO wordmark
   ctx.font      = 'bold 26px Orbitron, monospace';
   ctx.fillStyle = accentHex;
   ctx.textAlign = 'left';
   ctx.fillText('AIMO', 28, 44);
 
-  // Mode + duration line
   const modeLabel = (document.getElementById('mode-label-hud')?.textContent || selectedMode).toUpperCase();
   ctx.font      = '11px Rajdhani, sans-serif';
   ctx.fillStyle = 'rgba(255,255,255,0.32)';
   ctx.fillText('AIM TRAINER  ·  ' + modeLabel + ' MODE  ·  ' + selectedDuration + 's', 28, 62);
 
-  // Divider
   ctx.fillStyle = 'rgba(255,255,255,0.07)';
   ctx.fillRect(28, 72, W - 56, 1);
 
-  // Rank icon + name + username
   const rankIcon = document.getElementById('result-rank-icon')?.textContent || '🩶';
   const rankName = document.getElementById('result-rank-name')?.textContent || 'IRON';
   ctx.font = '44px serif';
@@ -1680,7 +2003,6 @@ function shareResult() {
   ctx.fillStyle = 'rgba(255,255,255,0.4)';
   ctx.fillText(currentProfile?.username || '', 84, 132);
 
-  // Stats grid 3×2
   const stats = [
     { label:'SCORE',       val: document.getElementById('final-score')?.textContent    || '0'  },
     { label:'ACCURACY',    val: document.getElementById('final-accuracy')?.textContent || '—'  },
@@ -1695,30 +2017,25 @@ function shareResult() {
     const cx  = 28 + col * colW;
     const cy  = 162 + row * 76;
 
-    // Card bg
     ctx.fillStyle = 'rgba(255,255,255,0.04)';
     roundRect(ctx, cx, cy, colW - 8, 64, 3);
     ctx.fill();
 
-    // Value
     ctx.font      = 'bold 22px Orbitron, monospace';
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'center';
     ctx.fillText(s.val, cx + (colW - 8) / 2, cy + 36);
 
-    // Label
     ctx.font      = '10px Rajdhani, sans-serif';
     ctx.fillStyle = 'rgba(255,255,255,0.32)';
     ctx.fillText(s.label, cx + (colW - 8) / 2, cy + 53);
   });
 
-  // Footer
   ctx.font      = '10px Rajdhani, sans-serif';
   ctx.fillStyle = 'rgba(255,255,255,0.18)';
   ctx.textAlign = 'right';
   ctx.fillText('aimo.gg  ·  ' + new Date().toLocaleDateString(), W - 28, H - 12);
 
-  // Download
   const link    = document.createElement('a');
   link.download = 'aimo-result.png';
   link.href     = canvas.toDataURL('image/png');
@@ -1734,3 +2051,40 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.lineTo(x, y + r);       ctx.quadraticCurveTo(x, y,          x + r, y);
   ctx.closePath();
 }
+
+// ═══════════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && isGameRunning) endGame();
+});
+
+window.addEventListener('DOMContentLoaded', () => {
+  loadSettings();
+  document.addEventListener('mousedown', () => { if (audioCtx && audioCtx.state==='suspended') audioCtx.resume(); }, { once:true });
+  initCrosshair();
+
+  const ga = document.getElementById('game-area');
+  if (ga) {
+    ga.addEventListener('mousedown', e => {
+      if (!isGameRunning || selectedMode === 'trace') return;
+      missClick(e);
+    });
+  }
+
+  const cbSelect = document.getElementById('colorblind-select');
+  if (cbSelect) {
+    cbSelect.value = settings.colorblind || 'none';
+    cbSelect.addEventListener('change', (e) => setColorblindMode(e.target.value));
+  }
+  const hcCheck = document.getElementById('high-contrast');
+  if (hcCheck) {
+    hcCheck.checked = settings.highContrast || false;
+    hcCheck.addEventListener('change', (e) => toggleHighContrast(e.target.checked));
+  }
+  const rmCheck = document.getElementById('reduced-motion');
+  if (rmCheck) {
+    rmCheck.checked = settings.reducedMotion || false;
+    rmCheck.addEventListener('change', (e) => toggleReducedMotion(e.target.checked));
+  }
+});
