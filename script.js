@@ -551,6 +551,7 @@ function startTracking() {
   traceAngle = Math.random() * Math.PI * 2;
   traceSpeed = diff.baseSpeed;
   traceOnFrames = 0; traceTotalFrames = 0; traceChangeTimer = 0;
+  _trkVx = 0; _trkVy = 0; _trkJitterTimer = 0; _trkFakeTimer = 0; _trkFaking = false;
 
   pickNewTrackingTarget(ga, diff);
 
@@ -594,11 +595,20 @@ function startTracking() {
   trackingFrameId = requestAnimationFrame(() => trackingCircleLoop(diff, ga));
 }
 
+// Extra state for human-like movement
+let _trkVx = 0, _trkVy = 0;          // velocity components
+let _trkJitterTimer = 0;              // frames until next jitter burst
+let _trkFakeTimer = 0;               // frames until fake direction switch ends
+let _trkFaking = false;               // currently doing a fake
+let _trkFakeAngle = 0;               // saved real angle during fake
+
 function pickNewTrackingTarget(ga, diff) {
   const margin = 80;
   traceTargetX = margin + Math.random() * (ga.offsetWidth  - margin * 2);
   traceTargetY = margin + HUD_HEIGHT + Math.random() * (ga.offsetHeight - margin * 2 - HUD_HEIGHT);
-  traceChangeTimer = 90 + Math.floor(Math.random() * 110);
+  // Vary how long before switching target — shorter on hard
+  const base = diff === TRACE_DIFF.hard ? 55 : diff === TRACE_DIFF.easy ? 130 : 85;
+  traceChangeTimer = base + Math.floor(Math.random() * 70);
 }
 
 function onTrackingMouseMove(e) {
@@ -612,26 +622,64 @@ function onTrackingMouseMove(e) {
 function trackingCircleLoop(diff, ga) {
   if (!isGameRunning) return;
 
-  // Steer toward target position (smooth curved movement)
+  const sz = diff.size / 2;
+  const W  = ga.offsetWidth, H = ga.offsetHeight;
+
+  // ── Acceleration toward steering target ──────────────────
   const angleToTarget = Math.atan2(traceTargetY - traceY, traceTargetX - traceX);
   let da = angleToTarget - traceAngle;
   while (da >  Math.PI) da -= Math.PI * 2;
   while (da < -Math.PI) da += Math.PI * 2;
-  traceAngle += da * diff.turnRate;
-  if (traceSpeed < diff.maxSpeed) traceSpeed += 0.005;
 
-  traceX += Math.cos(traceAngle) * traceSpeed;
-  traceY += Math.sin(traceAngle) * traceSpeed;
+  // Fake direction switch: briefly steer the opposite way
+  if (!_trkFaking && Math.random() < (diff === TRACE_DIFF.hard ? 0.004 : 0.002)) {
+    _trkFaking    = true;
+    _trkFakeAngle = traceAngle;
+    _trkFakeTimer = 18 + Math.floor(Math.random() * 22); // ~0.3–0.6s
+  }
+  if (_trkFaking) {
+    traceAngle -= da * diff.turnRate * 1.4; // steer opposite
+    _trkFakeTimer--;
+    if (_trkFakeTimer <= 0) { _trkFaking = false; }
+  } else {
+    traceAngle += da * diff.turnRate;
+  }
 
-  // Wall bounce with slight angle randomness
-  const sz = diff.size / 2;
-  const W  = ga.offsetWidth, H = ga.offsetHeight;
-  if (traceX < sz)            { traceX = sz;            traceAngle = Math.PI - traceAngle + (Math.random()-0.5)*0.4; }
-  if (traceX > W - sz)        { traceX = W - sz;        traceAngle = Math.PI - traceAngle + (Math.random()-0.5)*0.4; }
-  if (traceY < HUD_HEIGHT+sz) { traceY = HUD_HEIGHT+sz; traceAngle = -traceAngle + (Math.random()-0.5)*0.4; }
-  if (traceY > H - sz)        { traceY = H - sz;        traceAngle = -traceAngle + (Math.random()-0.5)*0.4; }
+  // ── Smooth acceleration / deceleration ────────────────────
+  const distToTarget = Math.hypot(traceTargetX - traceX, traceTargetY - traceY);
+  const targetSpeed  = distToTarget < 80
+    ? diff.baseSpeed                       // decelerate near target
+    : diff.maxSpeed;
+  const accel = distToTarget < 80 ? 0.04 : 0.012;
+  traceSpeed += (targetSpeed - traceSpeed) * accel;
+  traceSpeed  = Math.max(diff.baseSpeed * 0.4, Math.min(diff.maxSpeed * 1.15, traceSpeed));
 
-  // Periodically pick a new steering target to keep movement varied
+  // ── Random jitter bursts (human micro-corrections) ────────
+  _trkJitterTimer--;
+  let jx = 0, jy = 0;
+  if (_trkJitterTimer <= 0) {
+    const jStr = diff === TRACE_DIFF.hard ? 1.4 : diff === TRACE_DIFF.easy ? 0.5 : 0.9;
+    jx = (Math.random() - 0.5) * jStr;
+    jy = (Math.random() - 0.5) * jStr;
+    _trkJitterTimer = 8 + Math.floor(Math.random() * 20);
+  }
+
+  // ── Persistent velocity with momentum ────────────────────
+  const vxTarget = Math.cos(traceAngle) * traceSpeed + jx;
+  const vyTarget = Math.sin(traceAngle) * traceSpeed + jy;
+  _trkVx += (vxTarget - _trkVx) * 0.18;  // smooth velocity transition
+  _trkVy += (vyTarget - _trkVy) * 0.18;
+
+  traceX += _trkVx;
+  traceY += _trkVy;
+
+  // ── Wall bounce — reflect velocity, add randomness ────────
+  if (traceX < sz)            { traceX = sz;            _trkVx = Math.abs(_trkVx) * (0.7+Math.random()*0.3);  traceAngle = Math.PI - traceAngle + (Math.random()-0.5)*0.5; }
+  if (traceX > W - sz)        { traceX = W - sz;        _trkVx = -Math.abs(_trkVx) * (0.7+Math.random()*0.3); traceAngle = Math.PI - traceAngle + (Math.random()-0.5)*0.5; }
+  if (traceY < HUD_HEIGHT+sz) { traceY = HUD_HEIGHT+sz; _trkVy = Math.abs(_trkVy) * (0.7+Math.random()*0.3);  traceAngle = -traceAngle + (Math.random()-0.5)*0.5; }
+  if (traceY > H - sz)        { traceY = H - sz;        _trkVy = -Math.abs(_trkVy) * (0.7+Math.random()*0.3); traceAngle = -traceAngle + (Math.random()-0.5)*0.5; }
+
+  // ── Switch steering target periodically ──────────────────
   traceChangeTimer--;
   if (traceChangeTimer <= 0) pickNewTrackingTarget(ga, diff);
 
