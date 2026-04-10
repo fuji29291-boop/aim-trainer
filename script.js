@@ -1258,14 +1258,14 @@ function initCrosshair() {
     _xhairEl.id = 'custom-crosshair';
     document.body.appendChild(_xhairEl);
   }
-  // Promote to GPU layer immediately — eliminates all cursor lag
   _xhairEl.style.willChange = 'transform';
   _xhairEl.style.left = '0';
   _xhairEl.style.top  = '0';
+  // No offset subtracted — div is 0×0 so its origin IS the cursor hotspot.
+  // All child elements use translate(-50%,-50%) to center themselves on that point.
   document.addEventListener('mousemove', e => {
     if (_xhairEl) {
-      // translate3d forces GPU compositing — zero layout reflow, zero lag
-      _xhairEl.style.transform = `translate3d(${e.clientX - 16}px,${e.clientY - 16}px,0)`;
+      _xhairEl.style.transform = `translate3d(${e.clientX}px,${e.clientY}px,0)`;
     }
   }, { passive: true });
   setCrosshair(settings.crosshair);
@@ -1273,7 +1273,9 @@ function initCrosshair() {
 
 function setCrosshair(style) {
   settings.crosshair = style;
-  if (_xhairEl && XHAIRS[style]) _xhairEl.innerHTML = XHAIRS[style](settings.xhairColor);
+  if (_xhairEl && XHAIRS[style]) {
+    _xhairEl.innerHTML = `<div style="position:absolute;transform:translate(-50%,-50%);pointer-events:none;">${XHAIRS[style](settings.xhairColor)}</div>`;
+  }
   document.querySelectorAll('.xhair-btn').forEach(b => b.classList.toggle('active', b.dataset.xhair === style));
 }
 
@@ -2102,23 +2104,27 @@ function xbRender() {
 }
 
 function xbApply() {
-  // Apply to live crosshair
   settings.crosshair  = xbState.style;
   settings.xhairColor = xbState.color;
   if (_xhairEl) {
-    _xhairEl.style.opacity   = xbState.opacity;
-    _xhairEl.style.transform = _xhairEl.style.transform || '';
-    _xhairEl.style.filter    = xbState.outline
-      ? 'drop-shadow(0 0 1.5px #000) drop-shadow(0 0 1.5px #000)'
-      : '';
-    _xhairEl.style.scale = xbState.scale;
-    _xhairEl.innerHTML   = XHAIRS[xbState.style](xbState.color);
+    // Clear any leftover inline style from builder
+    _xhairEl.style.opacity = '';
+    _xhairEl.style.scale   = '';
+    // Wrap children in a single scaler div so translate3d is never touched
+    const filter = xbState.outline
+      ? 'drop-shadow(0 0 1.5px #000) drop-shadow(0 0 1.5px #000)' : '';
+    _xhairEl.innerHTML = `<div style="
+      position:absolute;
+      transform:translate(-50%,-50%) scale(${xbState.scale});
+      opacity:${xbState.opacity};
+      filter:${filter};
+      transform-origin:center center;
+      pointer-events:none;
+    ">${XHAIRS[xbState.style](xbState.color)}</div>`;
   }
-  // Sync style/color buttons on settings panel too
   document.querySelectorAll('.xhair-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.xhair === xbState.style));
   document.querySelectorAll('.color-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.color === xbState.color));
-
   showScreen('menu-screen');
 }
