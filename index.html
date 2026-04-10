@@ -18,8 +18,10 @@
   <div class="auth-bg-grid"></div>
   <div class="auth-container">
     <div class="logo-wrap">
+      <!-- AIMO Logo SVG -->
       <div class="aimo-logo-wrap">
         <svg class="aimo-logo-svg" viewBox="0 0 220 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <!-- Triangle icon -->
           <defs>
             <linearGradient id="triGrad" x1="0" y1="0" x2="1" y2="1">
               <stop offset="0%" stop-color="#00c8ff"/>
@@ -28,11 +30,17 @@
             </linearGradient>
             <filter id="glow"><feGaussianBlur stdDeviation="1.5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
           </defs>
+          <!-- Outer triangle -->
           <path d="M32 6 L60 58 L4 58 Z" fill="url(#triGrad)" opacity="0.9" filter="url(#glow)"/>
+          <!-- Inner dark cut -->
           <path d="M32 18 L52 54 L12 54 Z" fill="#05070f" opacity="0.7"/>
+          <!-- Inner triangle accent -->
           <path d="M32 30 L46 54 L18 54 Z" fill="url(#triGrad)" opacity="0.5"/>
+          <!-- Left slash -->
           <path d="M20 58 L30 18 L26 58 Z" fill="#05070f" opacity="0.8"/>
+          <!-- AIMO wordmark -->
           <text x="70" y="44" font-family="Orbitron,monospace" font-size="26" font-weight="900" fill="white" letter-spacing="3">AIMO</text>
+          <!-- Tagline -->
           <text x="70" y="58" font-family="Rajdhani,sans-serif" font-size="8.5" fill="rgba(255,255,255,0.38)" letter-spacing="4">PRECISION AIM TRAINER</text>
         </svg>
       </div>
@@ -47,7 +55,6 @@
       <div class="input-wrap"><input type="password" id="login-password" placeholder="Password" autocomplete="current-password"/></div>
       <div id="login-error" class="form-error"></div>
       <button class="btn-primary full-w" onclick="login()"><span>LOGIN</span></button>
-      <button class="btn-ghost full-w guest-btn" onclick="playAsGuest()">🎮 PLAY AS GUEST (OFFLINE)</button>
     </div>
     <div id="tab-register" class="auth-form" style="display:none">
       <div class="input-wrap"><input type="text" id="reg-username" placeholder="Callsign (shown on leaderboard)" maxlength="16" autocomplete="off"/></div>
@@ -55,29 +62,16 @@
       <div class="input-wrap"><input type="password" id="reg-password" placeholder="Password (min 6 chars)" autocomplete="new-password"/></div>
       <div id="register-error" class="form-error"></div>
       <button class="btn-primary full-w" onclick="register()"><span>CREATE ACCOUNT</span></button>
-      <button class="btn-ghost full-w guest-btn" onclick="playAsGuest()">🎮 PLAY AS GUEST (OFFLINE)</button>
     </div>
+    <div class="auth-divider"><span>OR</span></div>
+    <button class="btn-guest" onclick="loginAsGuest()">▶ PLAY AS GUEST</button>
+    <div class="auth-guest-note">No account needed · scores not saved to leaderboard</div>
   </div>
 </div>
 
 <!-- ═══ MENU ═══ -->
 <div id="menu-screen" class="screen">
   <div class="menu-container">
-
-    <!-- Daily Challenge Card -->
-    <div class="daily-challenge-card" id="daily-challenge-card">
-      <div class="daily-header">
-        <span class="daily-icon">📅</span>
-        <span class="daily-title">DAILY CHALLENGE</span>
-        <span class="daily-status" id="daily-status">🔒</span>
-      </div>
-      <div class="daily-desc" id="daily-desc">Loading...</div>
-      <div class="daily-progress">
-        <div class="daily-progress-track"><div class="daily-progress-fill" id="daily-progress-fill"></div></div>
-        <span id="daily-progress-text">0/0</span>
-      </div>
-      <button class="btn-primary daily-btn" onclick="startDailyChallenge()"><span>▶ START DAILY</span></button>
-    </div>
 
     <div class="logo-wrap small">
       <div class="aimo-logo-wrap small">
@@ -126,11 +120,6 @@
     <div class="mode-select">
       <div class="section-label">SELECT MODE</div>
       <div class="mode-grid">
-        <button class="mode-card" onclick="selectMode('gridshot')" id="mode-gridshot">
-          <div class="mode-card-icon">⬛</div>
-          <div class="mode-card-name">GRIDSHOT</div>
-          <div class="mode-card-desc">3x3 speed accuracy</div>
-        </button>
         <button class="mode-card active" onclick="selectMode('static')" id="mode-static">
           <div class="mode-card-icon">⊕</div>
           <div class="mode-card-name">STATIC</div>
@@ -144,7 +133,7 @@
         <button class="mode-card" onclick="selectMode('tracking')" id="mode-tracking">
           <div class="mode-card-icon">◎</div>
           <div class="mode-card-name">TRACKING</div>
-          <div class="mode-card-desc">Follow moving targets</div>
+          <div class="mode-card-desc">Follow the moving circle</div>
         </button>
         <button class="mode-card" onclick="selectMode('switching')" id="mode-switching">
           <div class="mode-card-icon">⁂</div>
@@ -161,11 +150,6 @@
           <div class="mode-card-name">SWITCH TRACK</div>
           <div class="mode-card-desc">Moving priority targets</div>
         </button>
-        <button class="mode-card training" onclick="selectMode('trace')" id="mode-trace">
-          <div class="mode-card-icon">〜</div>
-          <div class="mode-card-name">TRACE</div>
-          <div class="mode-card-desc">Training only · no rank</div>
-        </button>
       </div>
     </div>
 
@@ -178,21 +162,17 @@
       <div id="settings-body" class="settings-body" style="display:none">
         <div class="settings-cols">
           <div class="settings-col">
-            <div class="setting-row">
-              <label>Target Size <span id="size-val">60</span>px</label>
-              <input type="range" min="20" max="100" value="60" id="setting-size" oninput="updateSetting('size',this.value)"/>
-            </div>
-            <div class="setting-row">
-              <label>Target Speed <span id="speed-val">5</span></label>
-              <input type="range" min="1" max="10" value="5" id="setting-speed" oninput="updateSetting('speed',this.value)"/>
-            </div>
-            <div class="setting-row">
-              <label>Spawn Rate <span id="spawn-val">900</span>ms</label>
-              <input type="range" min="300" max="1500" value="900" step="100" id="setting-spawn" oninput="updateSetting('spawn',this.value)"/>
-            </div>
             <div class="setting-row inline">
               <label>Sound Effects</label>
               <button class="toggle-btn" id="sound-toggle" onclick="toggleSound()">ON</button>
+            </div>
+            <div class="setting-row">
+              <label>Tracking Difficulty</label>
+              <div class="diff-row">
+                <button class="diff-btn" data-diff="easy" onclick="setDifficulty('easy')">Easy</button>
+                <button class="diff-btn active" data-diff="medium" onclick="setDifficulty('medium')">Medium</button>
+                <button class="diff-btn" data-diff="hard" onclick="setDifficulty('hard')">Hard</button>
+              </div>
             </div>
           </div>
           <div class="settings-col">
@@ -200,7 +180,6 @@
               <label>Crosshair Style</label>
               <div class="xhair-row">
                 <button class="xhair-btn active" data-xhair="classic" onclick="setCrosshair('classic')">Classic</button>
-                <button class="xhair-btn" data-xhair="custom" onclick="openCrosshairEditor()">✎ Custom</button>
                 <button class="xhair-btn" data-xhair="dot" onclick="setCrosshair('dot')">Dot</button>
                 <button class="xhair-btn" data-xhair="circle" onclick="setCrosshair('circle')">Circle</button>
                 <button class="xhair-btn" data-xhair="gap" onclick="setCrosshair('gap')">Gap</button>
@@ -219,14 +198,6 @@
                 <button class="color-btn" data-color="#ffffff" onclick="setXhairColor('#ffffff')" style="background:#fff"></button>
               </div>
             </div>
-            <div class="setting-row">
-              <label>Trace Difficulty</label>
-              <div class="diff-row">
-                <button class="diff-btn" data-diff="easy" onclick="setDifficulty('easy')">Easy</button>
-                <button class="diff-btn active" data-diff="medium" onclick="setDifficulty('medium')">Medium</button>
-                <button class="diff-btn" data-diff="hard" onclick="setDifficulty('hard')">Hard</button>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -239,25 +210,6 @@
             <button class="theme-btn" data-theme="green" onclick="setTheme('green')">GREEN</button>
             <button class="theme-btn" data-theme="purple" onclick="setTheme('purple')">PURPLE</button>
             <button class="theme-btn" data-theme="orange" onclick="setTheme('orange')">ORANGE</button>
-          </div>
-        </div>
-
-        <!-- Accessibility -->
-        <div class="setting-row">
-          <label>Accessibility</label>
-          <div class="access-row">
-            <select id="colorblind-select" onchange="setColorblindMode(this.value)">
-              <option value="none">None</option>
-              <option value="protanopia">Protanopia (Red-Weak)</option>
-              <option value="deuteranopia">Deuteranopia (Green-Weak)</option>
-              <option value="tritanopia">Tritanopia (Blue-Weak)</option>
-            </select>
-          </div>
-          <div class="access-row">
-            <label><input type="checkbox" id="high-contrast" onchange="toggleHighContrast(this.checked)"> High Contrast Mode</label>
-          </div>
-          <div class="access-row">
-            <label><input type="checkbox" id="reduced-motion" onchange="toggleReducedMotion(this.checked)"> Reduced Motion</label>
           </div>
         </div>
       </div>
@@ -277,10 +229,11 @@
     <button class="btn-primary start-btn" onclick="startGame()"><span>▶ START TRAINING</span></button>
 
     <div class="menu-bottom">
-      <button class="btn-ghost offline-indicator" id="offline-indicator" style="display:none;">📴 OFFLINE MODE</button>
-      <button class="btn-ghost" onclick="showLeaderboard()" id="menu-leaderboard-btn">🏆 LEADERBOARD</button>
-      <button class="btn-ghost" onclick="showProfile()" id="menu-profile-btn">👤 PROFILE</button>
-      <button class="btn-ghost" onclick="logout()" id="menu-logout-btn">LOGOUT</button>
+      <button class="btn-ghost" onclick="showLeaderboard()">🏆 LEADERBOARD</button>
+      <button class="btn-ghost" onclick="showDailyChallenge()">📅 DAILY</button>
+      <button class="btn-ghost" onclick="showProfile()">👤 PROFILE</button>
+      <button class="btn-ghost" onclick="showCrosshairBuilder()">✛ CROSSHAIR</button>
+      <button class="btn-ghost" onclick="logoutOrGuest()">LOGOUT</button>
     </div>
   </div>
 </div>
@@ -328,8 +281,6 @@
       <div class="prof-mode-row"><span>⁂ SWITCHING</span><span id="prof-best-switching">—</span><span id="prof-rank-switching" class="mode-rank-badge">—</span></div>
       <div class="prof-mode-row"><span>◈ REACTION</span><span id="prof-best-reaction">—</span><span id="prof-rank-reaction" class="mode-rank-badge">—</span></div>
       <div class="prof-mode-row"><span>🎯 SW.TRACK</span><span id="prof-best-switchtrack">—</span><span id="prof-rank-switchtrack" class="mode-rank-badge">—</span></div>
-      <div class="prof-mode-row"><span>⬛ GRIDSHOT</span><span id="prof-best-gridshot">—</span><span id="prof-rank-gridshot" class="mode-rank-badge">—</span></div>
-      <div class="prof-mode-row training-row"><span>〜 TRACE</span><span id="prof-best-trace">TRAINING</span><span class="mode-rank-badge muted">NO RANK</span></div>
     </div>
 
     <div class="prof-buttons">
@@ -344,6 +295,125 @@
       </div>
       <canvas id="hist-canvas" height="160"></canvas>
       <div id="hist-empty" class="hist-empty">Play some games to see your progress here!</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ DAILY CHALLENGE ═══ -->
+<div id="daily-screen" class="screen">
+  <div class="daily-container">
+    <div class="daily-header">
+      <div class="daily-icon">📅</div>
+      <h2 class="daily-title">DAILY CHALLENGE</h2>
+      <div class="daily-date" id="daily-date">—</div>
+    </div>
+    <div class="daily-info-block">
+      <div class="daily-info-row">
+        <span class="daily-info-label">MODE</span>
+        <span class="daily-info-val" id="daily-mode-name">—</span>
+      </div>
+      <div class="daily-info-row">
+        <span class="daily-info-label">DURATION</span>
+        <span class="daily-info-val" id="daily-dur-name">30s</span>
+      </div>
+      <div class="daily-info-row">
+        <span class="daily-info-label">DIFFICULTY</span>
+        <span class="daily-info-val" id="daily-diff-name">MEDIUM</span>
+      </div>
+      <div class="daily-info-row">
+        <span class="daily-info-label">RESETS IN</span>
+        <span class="daily-info-val" id="daily-countdown">—</span>
+      </div>
+    </div>
+    <!-- Already played today -->
+    <div id="daily-played-block" class="daily-played-block" style="display:none">
+      <div class="daily-played-score" id="daily-played-score">0</div>
+      <div class="daily-played-label">YOUR SCORE TODAY</div>
+      <div class="daily-played-rank" id="daily-played-rank"></div>
+    </div>
+    <!-- Not played yet -->
+    <div id="daily-play-block" class="daily-play-block">
+      <div class="daily-note">Everyone plays the same challenge. Same mode, same seed, same conditions.</div>
+      <button class="btn-primary" onclick="startDailyChallenge()"><span>▶ START CHALLENGE</span></button>
+    </div>
+    <!-- Top 5 today -->
+    <div class="daily-lb-wrap">
+      <div class="daily-lb-title">TODAY'S TOP SCORES</div>
+      <div id="daily-lb-list" class="daily-lb-list"><div class="lb-loading">LOADING...</div></div>
+    </div>
+    <button class="btn-ghost" onclick="showScreen('menu-screen')" style="margin-top:12px">← BACK</button>
+  </div>
+</div>
+
+<!-- ═══ CROSSHAIR BUILDER ═══ -->
+<div id="crosshair-screen" class="screen">
+  <div class="xb-container">
+    <h2 class="xb-title">✛ CROSSHAIR BUILDER</h2>
+
+    <!-- Live preview -->
+    <div class="xb-preview-wrap">
+      <div class="xb-preview" id="xb-preview"></div>
+      <div class="xb-preview-bg"></div>
+    </div>
+
+    <!-- Controls -->
+    <div class="xb-controls">
+      <!-- Style -->
+      <div class="xb-group">
+        <div class="xb-group-label">STYLE</div>
+        <div class="xhair-row">
+          <button class="xhair-btn active" data-xhair="classic" onclick="xbSetStyle('classic')">Classic</button>
+          <button class="xhair-btn" data-xhair="dot"     onclick="xbSetStyle('dot')">Dot</button>
+          <button class="xhair-btn" data-xhair="circle"  onclick="xbSetStyle('circle')">Circle</button>
+          <button class="xhair-btn" data-xhair="gap"     onclick="xbSetStyle('gap')">Gap</button>
+          <button class="xhair-btn" data-xhair="cross"   onclick="xbSetStyle('cross')">Cross</button>
+          <button class="xhair-btn" data-xhair="t"       onclick="xbSetStyle('t')">T-Shape</button>
+        </div>
+      </div>
+
+      <!-- Color presets -->
+      <div class="xb-group">
+        <div class="xb-group-label">COLOR</div>
+        <div class="xb-color-row">
+          <button class="color-btn active" data-color="#00f5ff" onclick="xbSetColor('#00f5ff')" style="background:#00f5ff"></button>
+          <button class="color-btn" data-color="#ff2255" onclick="xbSetColor('#ff2255')" style="background:#ff2255"></button>
+          <button class="color-btn" data-color="#00ff88" onclick="xbSetColor('#00ff88')" style="background:#00ff88"></button>
+          <button class="color-btn" data-color="#ffd700" onclick="xbSetColor('#ffd700')" style="background:#ffd700"></button>
+          <button class="color-btn" data-color="#ff8800" onclick="xbSetColor('#ff8800')" style="background:#ff8800"></button>
+          <button class="color-btn" data-color="#ffffff" onclick="xbSetColor('#ffffff')" style="background:#fff"></button>
+          <button class="color-btn" data-color="#bf7fff" onclick="xbSetColor('#bf7fff')" style="background:#bf7fff"></button>
+          <button class="color-btn" data-color="#ff4dff" onclick="xbSetColor('#ff4dff')" style="background:#ff4dff"></button>
+        </div>
+        <!-- Custom hex input -->
+        <div class="xb-hex-row">
+          <span class="xb-hex-label">HEX</span>
+          <input type="text" id="xb-hex-input" class="xb-hex-input" value="#00f5ff" maxlength="7" placeholder="#00f5ff" oninput="xbHexInput(this.value)"/>
+          <div class="xb-hex-swatch" id="xb-hex-swatch" style="background:#00f5ff"></div>
+        </div>
+      </div>
+
+      <!-- Size slider -->
+      <div class="xb-group">
+        <div class="xb-group-label">SIZE  <span id="xb-size-val" class="xb-slider-val">1.0×</span></div>
+        <input type="range" min="50" max="200" value="100" class="xb-slider" id="xb-size-slider" oninput="xbSetScale(this.value)"/>
+      </div>
+
+      <!-- Opacity slider -->
+      <div class="xb-group">
+        <div class="xb-group-label">OPACITY  <span id="xb-opacity-val" class="xb-slider-val">100%</span></div>
+        <input type="range" min="20" max="100" value="100" class="xb-slider" id="xb-opacity-slider" oninput="xbSetOpacity(this.value)"/>
+      </div>
+
+      <!-- Outline toggle -->
+      <div class="xb-group xb-inline">
+        <div class="xb-group-label">BLACK OUTLINE</div>
+        <button class="toggle-btn" id="xb-outline-toggle" onclick="xbToggleOutline()">OFF</button>
+      </div>
+    </div>
+
+    <div class="xb-actions">
+      <button class="btn-primary" onclick="xbApply()"><span>✓ APPLY CROSSHAIR</span></button>
+      <button class="btn-ghost" onclick="showScreen('menu-screen')">← BACK</button>
     </div>
   </div>
 </div>
@@ -364,7 +434,6 @@
       <button class="lb-tab" onclick="switchLbMode('switching')">SWITCHING</button>
       <button class="lb-tab" onclick="switchLbMode('reaction')">REACTION</button>
       <button class="lb-tab" onclick="switchLbMode('switchtrack')">SW.TRACK</button>
-      <button class="lb-tab" onclick="switchLbMode('gridshot')">GRIDSHOT</button>
     </div>
     <div id="lb-list"><div class="lb-loading">FETCHING SCORES...</div></div>
     <button class="btn-ghost" onclick="showScreen('menu-screen')">← BACK</button>
@@ -398,26 +467,6 @@
   </div>
   <div id="game-area">
     <div id="miss-flash"></div>
-  </div>
-</div>
-
-<!-- ═══ CROSSHAIR EDITOR MODAL ═══ -->
-<div id="crosshair-editor-modal" class="modal" style="display:none;">
-  <div class="modal-content">
-    <h3>Custom Crosshair</h3>
-    <div class="xhair-preview" id="xhair-preview"></div>
-    <div class="editor-grid">
-      <label>Length: <input type="range" id="custom-length" min="4" max="40" value="18" step="1"></label>
-      <label>Thickness: <input type="range" id="custom-thickness" min="1" max="8" value="2" step="1"></label>
-      <label>Gap: <input type="range" id="custom-gap" min="0" max="20" value="0" step="1"></label>
-      <label>Dot Size: <input type="range" id="custom-dot" min="0" max="10" value="3" step="1"></label>
-      <label>Opacity: <input type="range" id="custom-opacity" min="0.2" max="1" value="1" step="0.1"></label>
-      <label>Color: <input type="color" id="custom-color" value="#00f5ff"></label>
-    </div>
-    <div class="modal-buttons">
-      <button class="btn-primary" onclick="applyCustomCrosshair()">Apply</button>
-      <button class="btn-ghost" onclick="closeCrosshairEditor()">Cancel</button>
-    </div>
   </div>
 </div>
 
