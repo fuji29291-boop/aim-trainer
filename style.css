@@ -51,10 +51,10 @@ body {
 /* ── CROSSHAIR ───────────────────────── */
 #custom-crosshair {
   position: fixed; z-index: 9998; pointer-events: none;
-  width: 32px; height: 32px;
+  /* width/height 0 so transform origin = exact cursor hotspot, no offset math needed */
+  width: 0; height: 0;
   top: 0; left: 0;
   will-change: transform;
-  /* JS sets transform: translate(x, y) — GPU path, zero layout reflow */
 }
 
 /* ── SCREENS ──────────────────────────── */
