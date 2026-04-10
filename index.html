@@ -233,6 +233,8 @@
       <button class="btn-ghost" onclick="showDailyChallenge()">📅 DAILY</button>
       <button class="btn-ghost" onclick="showProfile()">👤 PROFILE</button>
       <button class="btn-ghost" onclick="showCrosshairBuilder()">✛ CROSSHAIR</button>
+      <button class="btn-ghost" onclick="showScreen('sens-screen')">🖱️ SENS</button>
+      <button class="btn-ghost" onclick="showScreen('search-screen')">🔍 SEARCH</button>
       <button class="btn-ghost" onclick="logoutOrGuest()">LOGOUT</button>
     </div>
   </div>
@@ -415,6 +417,127 @@
       <button class="btn-primary" onclick="xbApply()"><span>✓ APPLY CROSSHAIR</span></button>
       <button class="btn-ghost" onclick="showScreen('menu-screen')">← BACK</button>
     </div>
+  </div>
+</div>
+
+<!-- ═══ SENSITIVITY CONVERTER ═══ -->
+<div id="sens-screen" class="screen">
+  <div class="sens-container">
+    <h2 class="sens-title">🖱️ SENSITIVITY CONVERTER</h2>
+    <p class="sens-sub">Convert your sensitivity between games. All values normalized to cm/360°.</p>
+
+    <div class="sens-cols">
+      <!-- FROM -->
+      <div class="sens-card">
+        <div class="sens-card-label">FROM</div>
+        <select class="sens-select" id="sens-from-game" onchange="sensCalc()">
+          <option value="val">Valorant</option>
+          <option value="csgo">CS2 / CS:GO</option>
+          <option value="apex">Apex Legends</option>
+          <option value="overwatch">Overwatch 2</option>
+          <option value="fortnite">Fortnite</option>
+          <option value="cod">Call of Duty</option>
+          <option value="r6">Rainbow Six Siege</option>
+          <option value="rust">Rust</option>
+          <option value="minecraft">Minecraft</option>
+          <option value="roblox">Roblox</option>
+          <option value="raw">Raw (cm/360°)</option>
+        </select>
+        <input type="number" id="sens-from-val" class="sens-input" value="0.4" step="0.01" min="0.001" oninput="sensCalc()" placeholder="Sensitivity"/>
+        <input type="number" id="sens-from-dpi" class="sens-input" value="800" step="100" min="100" oninput="sensCalc()" placeholder="DPI"/>
+        <div class="sens-cm" id="sens-from-cm">— cm/360°</div>
+      </div>
+
+      <div class="sens-arrow">→</div>
+
+      <!-- TO -->
+      <div class="sens-card">
+        <div class="sens-card-label">TO</div>
+        <select class="sens-select" id="sens-to-game" onchange="sensCalc()">
+          <option value="csgo">CS2 / CS:GO</option>
+          <option value="val">Valorant</option>
+          <option value="apex">Apex Legends</option>
+          <option value="overwatch">Overwatch 2</option>
+          <option value="fortnite">Fortnite</option>
+          <option value="cod">Call of Duty</option>
+          <option value="r6">Rainbow Six Siege</option>
+          <option value="rust">Rust</option>
+          <option value="minecraft">Minecraft</option>
+          <option value="roblox">Roblox</option>
+          <option value="raw">Raw (cm/360°)</option>
+        </select>
+        <div class="sens-result-label">RESULT SENSITIVITY</div>
+        <div class="sens-result" id="sens-to-val">—</div>
+        <input type="number" id="sens-to-dpi" class="sens-input" value="800" step="100" min="100" oninput="sensCalc()" placeholder="Target DPI"/>
+        <div class="sens-cm" id="sens-to-cm">— cm/360°</div>
+      </div>
+    </div>
+
+    <!-- eDPI display -->
+    <div class="sens-edpi-row">
+      <div class="sens-edpi-block">
+        <div class="sens-edpi-val" id="sens-edpi-from">—</div>
+        <div class="sens-edpi-label">FROM eDPI</div>
+      </div>
+      <div class="sens-edpi-block">
+        <div class="sens-edpi-val" id="sens-edpi-to">—</div>
+        <div class="sens-edpi-label">TO eDPI</div>
+      </div>
+      <div class="sens-edpi-block">
+        <div class="sens-edpi-val" id="sens-cm360">—</div>
+        <div class="sens-edpi-label">cm / 360°</div>
+      </div>
+    </div>
+
+    <button class="btn-ghost" onclick="showScreen('menu-screen')" style="margin-top:8px">← BACK</button>
+  </div>
+</div>
+
+<!-- ═══ USER SEARCH ═══ -->
+<div id="search-screen" class="screen">
+  <div class="search-container">
+    <h2 class="search-title">🔍 SEARCH PLAYERS</h2>
+    <div class="search-bar-wrap">
+      <input type="text" id="search-input" class="search-input" placeholder="Enter callsign..." maxlength="16"
+        oninput="searchDebounce()" autocomplete="off" autocorrect="off" spellcheck="false"/>
+      <button class="search-go-btn" onclick="searchUsers()">SEARCH</button>
+    </div>
+    <div id="search-results" class="search-results">
+      <div class="search-empty">Type a callsign to look up a player.</div>
+    </div>
+    <button class="btn-ghost" onclick="showScreen('menu-screen')" style="margin-top:12px">← BACK</button>
+  </div>
+</div>
+
+<!-- ═══ PUBLIC PROFILE (viewed from search) ═══ -->
+<div id="pub-profile-screen" class="screen">
+  <div class="profile-container">
+    <div class="profile-header">
+      <div class="prof-avatar-wrap" style="pointer-events:none">
+        <div class="prof-avatar" id="pub-avatar">?</div>
+      </div>
+      <div class="prof-info">
+        <div class="prof-rank-icon" id="pub-rank-icon">🩶</div>
+        <div class="prof-username" id="pub-username">—</div>
+        <div class="prof-rank-name" id="pub-rank-name">IRON</div>
+        <div class="prof-global" id="pub-global">GLOBAL RANK —</div>
+      </div>
+    </div>
+    <div class="prof-stats-row">
+      <div class="prof-stat"><div class="prof-stat-val" id="pub-games">0</div><div class="prof-stat-label">Games</div></div>
+      <div class="prof-stat"><div class="prof-stat-val" id="pub-hits">0</div><div class="prof-stat-label">Total Hits</div></div>
+      <div class="prof-stat"><div class="prof-stat-val" id="pub-best">0</div><div class="prof-stat-label">Best Score</div></div>
+    </div>
+    <div class="prof-modes">
+      <div class="prof-mode-header"><span>MODE</span><span>BEST</span><span>RANK</span></div>
+      <div class="prof-mode-row"><span>⊕ STATIC</span><span id="pub-s-static">—</span><span id="pub-r-static" class="mode-rank-badge">—</span></div>
+      <div class="prof-mode-row"><span>⚡ FLICK</span><span id="pub-s-flick">—</span><span id="pub-r-flick" class="mode-rank-badge">—</span></div>
+      <div class="prof-mode-row"><span>◎ TRACKING</span><span id="pub-s-tracking">—</span><span id="pub-r-tracking" class="mode-rank-badge">—</span></div>
+      <div class="prof-mode-row"><span>⁂ SWITCHING</span><span id="pub-s-switching">—</span><span id="pub-r-switching" class="mode-rank-badge">—</span></div>
+      <div class="prof-mode-row"><span>◈ REACTION</span><span id="pub-s-reaction">—</span><span id="pub-r-reaction" class="mode-rank-badge">—</span></div>
+      <div class="prof-mode-row"><span>🎯 SW.TRACK</span><span id="pub-s-switchtrack">—</span><span id="pub-r-switchtrack" class="mode-rank-badge">—</span></div>
+    </div>
+    <button class="btn-ghost" onclick="showScreen('search-screen')" style="margin-top:12px">← BACK TO SEARCH</button>
   </div>
 </div>
 

@@ -2128,3 +2128,172 @@ function xbApply() {
     b.classList.toggle('active', b.dataset.color === xbState.color));
   showScreen('menu-screen');
 }
+
+// ═══════════════════════════════════════════════════════════
+//  SENSITIVITY CONVERTER
+//  yaw = degrees turned per mouse count
+//  cm360 = centimeters of mouse movement for 360° turn
+//  Formula: cm360 = 360 / (yaw * DPI * 2.54)
+// ═══════════════════════════════════════════════════════════
+const SENS_YAW = {
+  val:        0.07,    // Valorant
+  csgo:       0.022,   // CS2 / CS:GO
+  apex:       0.022,   // Apex (same as CS engine base)
+  overwatch:  0.0066,  // Overwatch 2
+  fortnite:   0.5715,  // Fortnite (uses FOV-based system, approx at 103 FOV)
+  cod:        0.0066,  // COD (Warzone etc)
+  r6:         0.00572638, // Rainbow Six Siege
+  rust:       0.1,     // Rust
+  minecraft:  0.1,     // Minecraft
+  roblox:     0.35,    // Roblox
+  raw:        null,    // raw cm/360 input
+};
+
+function getCm360(game, sens, dpi) {
+  if (game === 'raw') return parseFloat(sens);
+  const yaw = SENS_YAW[game];
+  if (!yaw || !dpi || !sens) return null;
+  return 360 / (yaw * sens * dpi / 2.54);
+}
+
+function cm360ToSens(game, cm360, dpi) {
+  if (game === 'raw') return cm360;
+  const yaw = SENS_YAW[game];
+  if (!yaw || !dpi) return null;
+  return 360 / (yaw * dpi * cm360 / 2.54);
+}
+
+function sensCalc() {
+  const fromGame = document.getElementById('sens-from-game')?.value;
+  const fromSens = parseFloat(document.getElementById('sens-from-val')?.value);
+  const fromDpi  = parseFloat(document.getElementById('sens-from-dpi')?.value);
+  const toGame   = document.getElementById('sens-to-game')?.value;
+  const toDpi    = parseFloat(document.getElementById('sens-to-dpi')?.value);
+
+  const cm360 = getCm360(fromGame, fromSens, fromDpi);
+
+  // Update FROM display
+  const fromCmEl = document.getElementById('sens-from-cm');
+  if (fromCmEl) fromCmEl.textContent = cm360 ? cm360.toFixed(2) + ' cm/360°' : '— cm/360°';
+
+  const fromEdpi = fromDpi && fromSens ? Math.round(fromDpi * fromSens) : null;
+  _setEl('sens-edpi-from', fromEdpi ? fromEdpi.toLocaleString() : '—');
+  _setEl('sens-cm360', cm360 ? cm360.toFixed(2) : '—');
+
+  if (!cm360) {
+    _setEl('sens-to-val', '—');
+    _setEl('sens-to-cm', '— cm/360°');
+    _setEl('sens-edpi-to', '—');
+    return;
+  }
+
+  const toSens = cm360ToSens(toGame, cm360, toDpi);
+  const toCmEl = document.getElementById('sens-to-cm');
+  if (toCmEl) toCmEl.textContent = cm360.toFixed(2) + ' cm/360°';
+
+  _setEl('sens-to-val', toGame === 'raw' ? cm360.toFixed(2) : (toSens ? toSens.toFixed(4) : '—'));
+
+  const toEdpi = toDpi && toSens ? Math.round(toDpi * toSens) : null;
+  _setEl('sens-edpi-to', toEdpi ? toEdpi.toLocaleString() : '—');
+}
+
+// ═══════════════════════════════════════════════════════════
+//  USER SEARCH + PUBLIC PROFILE
+// ═══════════════════════════════════════════════════════════
+let _searchTimer = null;
+
+function searchDebounce() {
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(searchUsers, 420);
+}
+
+async function searchUsers() {
+  const input = document.getElementById('search-input');
+  const query = (input?.value || '').trim().toUpperCase();
+  const resultsEl = document.getElementById('search-results');
+  if (!resultsEl) return;
+
+  if (query.length < 2) {
+    resultsEl.innerHTML = '<div class="search-empty">Type at least 2 characters.</div>';
+    return;
+  }
+
+  resultsEl.innerHTML = '<div class="search-empty">Searching...</div>';
+
+  try {
+    // Supabase: ilike for case-insensitive partial match
+    const { ok, data } = await supabase(
+      `/rest/v1/profiles?username=ilike.${encodeURIComponent(query + '*')}&select=username,best_score,games_played,avatar&order=best_score.desc&limit=15`
+    );
+    if (!ok || !Array.isArray(data) || !data.length) {
+      resultsEl.innerHTML = '<div class="search-empty">No players found.</div>';
+      return;
+    }
+
+    resultsEl.innerHTML = data.map(p => {
+      const rank = getRank(p.best_score || 0);
+      const isMe = p.username === currentProfile?.username;
+      return `<div class="search-card" onclick="viewPublicProfile('${escHtml(p.username)}')">
+        <div class="search-card-avatar">${escHtml(p.avatar || '🎯')}</div>
+        <div class="search-card-info">
+          <div class="search-card-name">${escHtml(p.username)}${isMe ? ' <span style="color:var(--accent);font-size:11px">YOU</span>' : ''}</div>
+          <div class="search-card-rank">${rank.icon} ${rank.name} · ${(p.games_played||0)} games</div>
+        </div>
+        <div class="search-card-score">${(p.best_score||0).toLocaleString()}</div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    resultsEl.innerHTML = '<div class="search-error">Search failed. Check connection.</div>';
+  }
+}
+
+async function viewPublicProfile(username) {
+  showScreen('pub-profile-screen');
+  // Clear while loading
+  _setEl('pub-username', username);
+  _setEl('pub-rank-icon', '⏳');
+  _setEl('pub-rank-name', 'LOADING...');
+  _setEl('pub-global', '');
+  _setEl('pub-avatar', '?');
+  _setEl('pub-games', '—'); _setEl('pub-hits', '—'); _setEl('pub-best', '—');
+  RANKED_MODES.forEach(m => { _setEl('pub-s-'+m,'—'); _setEl('pub-r-'+m,'—'); });
+
+  try {
+    const { ok, data } = await supabase(
+      `/rest/v1/profiles?username=eq.${encodeURIComponent(username)}&select=*&limit=1`
+    );
+    if (!ok || !data?.length) { _setEl('pub-rank-name', 'USER NOT FOUND'); return; }
+
+    const p    = data[0];
+    const rank = getRank(p.best_score || 0);
+    const prog = getRankProgress(p.best_score || 0);
+
+    _setEl('pub-avatar',    p.avatar || '🎯');
+    _setEl('pub-username',  p.username);
+    _setEl('pub-rank-icon', rank.icon);
+    _setEl('pub-rank-name', rank.name);
+    _setEl('pub-games',     (p.games_played||0).toLocaleString());
+    _setEl('pub-hits',      (p.total_hits||0).toLocaleString());
+    _setEl('pub-best',      (p.best_score||0).toLocaleString());
+
+    // Global rank async
+    _setEl('pub-global', 'LOADING RANK...');
+    fetchGlobalRank(p.best_score || 0).then(r => {
+      _setEl('pub-global', r ? '🌍 GLOBAL RANK #' + r : '🌍 GLOBAL RANK —');
+    });
+
+    // Per-mode bests + rank
+    for (const mode of RANKED_MODES) {
+      const ms = p['best_' + mode] || 0;
+      _setEl('pub-s-' + mode, ms > 0 ? ms.toLocaleString() : '—');
+      _setEl('pub-r-' + mode, '...');
+      if (ms > 0) {
+        fetchModeRank(mode, ms).then(r => _setEl('pub-r-' + mode, r ? '#' + r : '—'));
+      } else {
+        _setEl('pub-r-' + mode, '—');
+      }
+    }
+  } catch(e) {
+    _setEl('pub-rank-name', 'ERROR LOADING');
+  }
+}
