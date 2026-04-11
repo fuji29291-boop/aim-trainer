@@ -20,44 +20,45 @@ const SUPABASE_KEY = 'sb_publishable_egPhfy4nWgh5Ci0_RGnMhQ_1rJ8J-_k';
 //  RANKS — thresholds match realistic 30s game scores
 // ═══════════════════════════════════════════════════════════
 // ═══════════════════════════════════════════════════════════
-//  RANK SYSTEM v2 — Duration-normalized, accuracy-weighted
+//  RANK SYSTEM v3 — Duration-normalized, exponential accuracy
 //
-//  Rank Score = rawScore × (30 / sessionDuration) × accMult
-//  accMult    = 0.5 + (accuracy / 100) × 0.5
+//  Rank Score = rawScore × (30 / duration) × (accuracy/100)²
 //
-//  This means:
-//  • 90s session scores are divided by 3 before ranking
-//  • 60s session scores are divided by 2
-//  • 50% accuracy reduces rank score by 25%
-//  • You CANNOT grind longer sessions to inflate rank
+//  The squared accuracy term is brutal:
+//  100% acc → 1.00×   (perfect)
+//   90% acc → 0.81×
+//   80% acc → 0.64×
+//   70% acc → 0.49×   ← 5k raw × 0.49 = 2,450  (Silver, not Plat)
+//   60% acc → 0.36×
+//   50% acc → 0.25×   (spam-clicking punished hard)
 //
-//  Realistic 30s normalized ceilings per mode (elite human):
-//  Static:    ~4,500   (33 hits × ~135pts avg with bonuses)
-//  Flick:     ~6,000   (1.8× multiplier, fast targets)
-//  Switching: ~5,500   (priority bonuses)
-//  Reaction:  ~7,500   (10 rounds × 750 avg — sub-200ms = 1,700pts)
-//  SwitchTrk: ~6,500
-//  Tracking:  ~4,000   (continuous proximity scoring)
+//  Realistic 30s RS ceiling per mode at elite level:
+//  Static    ~8,500  (35 hits, 90% acc, full streak bonuses)
+//  Flick     ~11,000 (1.8× mult, sub-300ms reaction, 85% acc)
+//  Switching ~9,500  (priority hits, 85% acc)
+//  Reaction  ~14,000 (10 rounds avg 180ms = ~1,400pts × 0.95²)
+//  SwitchTrk ~10,000
+//  Tracking  ~7,000  (proximity scoring, 95% on-target)
 //
-//  Rank thresholds target top % of players:
-//  IRON     → 0        (everyone starts here)
-//  BRONZE   → 600      (played a few times seriously)
-//  SILVER   → 1,400    (consistent, clean aim)
-//  GOLD     → 2,600    (above average, 65%+ acc)
-//  PLATINUM → 4,000    (strong player, top 25%)
-//  DIAMOND  → 5,500    (very good, top 10%)
-//  MASTER   → 7,000    (exceptional, top 3%)
-//  IMMORTAL → 9,000    (near-perfect — genuinely rare)
+//  Rank thresholds — how hard each one actually is:
+//  IRON     →  0       just booted up
+//  BRONZE   →  1,200   played seriously for the first time
+//  SILVER   →  3,000   consistent, clean aim, 70%+ acc
+//  GOLD     →  6,000   above average — top 40% globally
+//  PLATINUM →  10,000  strong aim, 80%+ acc required
+//  DIAMOND  →  16,000  very good — top 8%
+//  MASTER   →  24,000  exceptional — top 2%
+//  IMMORTAL →  35,000  near-perfect sessions only — top 0.5%
 // ═══════════════════════════════════════════════════════════
 const RANKS = [
-  { name:'IRON',     icon:'🩶', min:0     },
-  { name:'BRONZE',   icon:'🥉', min:600   },
-  { name:'SILVER',   icon:'🥈', min:1400  },
-  { name:'GOLD',     icon:'🥇', min:2600  },
-  { name:'PLATINUM', icon:'💎', min:4000  },
-  { name:'DIAMOND',  icon:'💠', min:5500  },
-  { name:'MASTER',   icon:'🔮', min:7000  },
-  { name:'IMMORTAL', icon:'👑', min:9000  },
+  { name:'IRON',     icon:'🩶', min:0      },
+  { name:'BRONZE',   icon:'🥉', min:1200   },
+  { name:'SILVER',   icon:'🥈', min:3000   },
+  { name:'GOLD',     icon:'🥇', min:6000   },
+  { name:'PLATINUM', icon:'💎', min:10000  },
+  { name:'DIAMOND',  icon:'💠', min:16000  },
+  { name:'MASTER',   icon:'🔮', min:24000  },
+  { name:'IMMORTAL', icon:'👑', min:35000  },
 ];
 
 function getRank(s) {
@@ -75,12 +76,12 @@ function getRankProgress(score) {
   return { pct, current, next, pointsNeeded: next.min - score };
 }
 
-// Normalize raw game score → rank score
-// Divides by session duration ratio so 90s ≠ 3× rank credit
-// Applies accuracy multiplier so spraying doesn't farm rank
+// Rank Score — duration normalized, accuracy² penalty
+// Bad accuracy gets crushed: 70% acc = only 49% credit
 function computeRankScore(rawScore, durationSecs, accuracyPct) {
-  const durationNorm = 30 / Math.max(15, durationSecs);   // normalize to 30s baseline
-  const accMult      = 0.5 + (Math.max(0, Math.min(100, accuracyPct)) / 100) * 0.5;
+  const durationNorm = 30 / Math.max(15, durationSecs);
+  const accFrac      = Math.max(0, Math.min(100, accuracyPct)) / 100;
+  const accMult      = accFrac * accFrac;   // squared — brutal but fair
   return Math.round(rawScore * durationNorm * accMult);
 }
 
