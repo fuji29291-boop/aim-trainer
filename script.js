@@ -19,15 +19,45 @@ const SUPABASE_KEY = 'sb_publishable_egPhfy4nWgh5Ci0_RGnMhQ_1rJ8J-_k';
 // ═══════════════════════════════════════════════════════════
 //  RANKS — thresholds match realistic 30s game scores
 // ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+//  RANK SYSTEM v2 — Duration-normalized, accuracy-weighted
+//
+//  Rank Score = rawScore × (30 / sessionDuration) × accMult
+//  accMult    = 0.5 + (accuracy / 100) × 0.5
+//
+//  This means:
+//  • 90s session scores are divided by 3 before ranking
+//  • 60s session scores are divided by 2
+//  • 50% accuracy reduces rank score by 25%
+//  • You CANNOT grind longer sessions to inflate rank
+//
+//  Realistic 30s normalized ceilings per mode (elite human):
+//  Static:    ~4,500   (33 hits × ~135pts avg with bonuses)
+//  Flick:     ~6,000   (1.8× multiplier, fast targets)
+//  Switching: ~5,500   (priority bonuses)
+//  Reaction:  ~7,500   (10 rounds × 750 avg — sub-200ms = 1,700pts)
+//  SwitchTrk: ~6,500
+//  Tracking:  ~4,000   (continuous proximity scoring)
+//
+//  Rank thresholds target top % of players:
+//  IRON     → 0        (everyone starts here)
+//  BRONZE   → 600      (played a few times seriously)
+//  SILVER   → 1,400    (consistent, clean aim)
+//  GOLD     → 2,600    (above average, 65%+ acc)
+//  PLATINUM → 4,000    (strong player, top 25%)
+//  DIAMOND  → 5,500    (very good, top 10%)
+//  MASTER   → 7,000    (exceptional, top 3%)
+//  IMMORTAL → 9,000    (near-perfect — genuinely rare)
+// ═══════════════════════════════════════════════════════════
 const RANKS = [
-  { name:'IRON',     icon:'🩶', min:0      },
-  { name:'BRONZE',   icon:'🥉', min:1500   },
-  { name:'SILVER',   icon:'🥈', min:4000   },
-  { name:'GOLD',     icon:'🥇', min:8000   },
-  { name:'PLATINUM', icon:'💎', min:12500  },
-  { name:'DIAMOND',  icon:'💠', min:16000  },
-  { name:'MASTER',   icon:'🔮', min:20000  },
-  { name:'IMMORTAL', icon:'👑', min:24000  },
+  { name:'IRON',     icon:'🩶', min:0     },
+  { name:'BRONZE',   icon:'🥉', min:600   },
+  { name:'SILVER',   icon:'🥈', min:1400  },
+  { name:'GOLD',     icon:'🥇', min:2600  },
+  { name:'PLATINUM', icon:'💎', min:4000  },
+  { name:'DIAMOND',  icon:'💠', min:5500  },
+  { name:'MASTER',   icon:'🔮', min:7000  },
+  { name:'IMMORTAL', icon:'👑', min:9000  },
 ];
 
 function getRank(s) {
@@ -43,6 +73,15 @@ function getRankProgress(score) {
   if (!next) return { pct:100, current, next:null, pointsNeeded:0 };
   const pct = Math.min(100, Math.round(((score - current.min) / (next.min - current.min)) * 100));
   return { pct, current, next, pointsNeeded: next.min - score };
+}
+
+// Normalize raw game score → rank score
+// Divides by session duration ratio so 90s ≠ 3× rank credit
+// Applies accuracy multiplier so spraying doesn't farm rank
+function computeRankScore(rawScore, durationSecs, accuracyPct) {
+  const durationNorm = 30 / Math.max(15, durationSecs);   // normalize to 30s baseline
+  const accMult      = 0.5 + (Math.max(0, Math.min(100, accuracyPct)) / 100) * 0.5;
+  return Math.round(rawScore * durationNorm * accMult);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -348,7 +387,7 @@ async function enterMenu() {
   _setEl('badge-username',   currentProfile.username);
   _setEl('badge-rank-icon',  rank.icon);
   _setEl('badge-rank-name',  rank.name);
-  _setEl('badge-best',       'Best: ' + (currentProfile.best_score||0).toLocaleString());
+  _setEl('badge-best',       'RS: ' + (currentProfile.best_score||0).toLocaleString());
   _setEl('badge-avatar',     currentProfile.avatar || '🎯');
   _setEl('badge-rank-next',  prog.next ? prog.pointsNeeded.toLocaleString() + ' pts → ' + prog.next.name : '✦ MAX RANK');
   const fillEl = document.getElementById('badge-rank-fill');
@@ -1036,14 +1075,19 @@ async function endGame() {
   const mrEl = document.getElementById('result-mode-rank');
   if (mrEl) mrEl.style.display = 'none';
 
-  // Rank progress bar
-  const prog  = getRankProgress(score);
-  const rpEl  = document.getElementById('result-rank-progress');
+  // Rank progress bar uses RANK SCORE (duration-normalized, accuracy-weighted)
+  // Preview it before submit so player sees it immediately
+  const previewRankScore = computeRankScore(score, selectedDuration, accuracy);
+  const previewRank      = getRank(Math.max(previewRankScore, currentProfile.best_score || 0));
+  const prog = getRankProgress(Math.max(previewRankScore, currentProfile.best_score || 0));
+  const rpEl = document.getElementById('result-rank-progress');
   if (rpEl) rpEl.style.display = 'block';
-  _setEl('rrp-cur',  rank.icon + ' ' + rank.name);
+  _setEl('rrp-cur',  previewRank.icon + ' ' + previewRank.name);
   _setEl('rrp-next', prog.next ? prog.next.icon + ' ' + prog.next.name : '✦ MAX');
   _setEl('rrp-pct',  prog.pct + '%');
-  _setEl('rrp-sub',  prog.next ? `${prog.pct}% — ${prog.pointsNeeded.toLocaleString()} pts to ${prog.next.name}` : 'Maximum rank achieved!');
+  _setEl('rrp-sub',  prog.next
+    ? `RANK SCORE: ${previewRankScore.toLocaleString()} · ${prog.pct}% · ${prog.pointsNeeded.toLocaleString()} RS to ${prog.next.name}`
+    : 'Maximum rank achieved!');
   const rrpFill = document.getElementById('rrp-fill');
   if (rrpFill) { rrpFill.style.width = '0%'; setTimeout(() => { rrpFill.style.width = prog.pct + '%'; }, 200); }
 
@@ -1068,17 +1112,19 @@ async function endGame() {
   }
 
   try {
+    // Compute normalized rank score — this is what drives ranks, NOT raw score
+    const rankScore    = computeRankScore(score, selectedDuration, accuracy);
+    const newBest      = Math.max(rankScore, currentProfile.best_score || 0);
+    const modeCol      = 'best_' + selectedMode;
+    const newModeBest  = Math.max(rankScore, currentProfile[modeCol] || 0);
+    const newHits      = (currentProfile.total_hits   || 0) + hits;
+    const newGames     = (currentProfile.games_played || 0) + 1;
+
     const ins = await supabase('/rest/v1/scores', {
       method:'POST',
-      body:JSON.stringify({ user_id:currentUser.id, name:currentProfile.username, score, accuracy, hits, mode:selectedMode })
+      body:JSON.stringify({ user_id:currentUser.id, name:currentProfile.username, score, accuracy, hits, mode:selectedMode, rank_score:rankScore })
     });
     if (!ins.ok) throw new Error(JSON.stringify(ins.data));
-
-    const newBest     = Math.max(score, currentProfile.best_score || 0);
-    const modeCol     = 'best_' + selectedMode;
-    const newModeBest = Math.max(score, currentProfile[modeCol] || 0);
-    const newHits     = (currentProfile.total_hits  || 0) + hits;
-    const newGames    = (currentProfile.games_played|| 0) + 1;
 
     const patch = { best_score:newBest, total_hits:newHits, games_played:newGames, [modeCol]:newModeBest };
     await supabase(`/rest/v1/profiles?id=eq.${currentUser.id}`, { method:'PATCH', body:JSON.stringify(patch) });
@@ -1088,10 +1134,10 @@ async function endGame() {
     currentProfile.games_played  = newGames;
     currentProfile[modeCol]      = newModeBest;
 
-    // Update menu badge live
+    // Badge shows rank score (normalized), raw score shown in result cards
     const rankUpd = getRank(newBest);
     const progUpd = getRankProgress(newBest);
-    _setEl('badge-best',      'Best: ' + newBest.toLocaleString());
+    _setEl('badge-best',      'RS: ' + newBest.toLocaleString());  // RS = Rank Score
     _setEl('badge-rank-icon', rankUpd.icon);
     _setEl('badge-rank-name', rankUpd.name);
     const bfEl = document.getElementById('badge-rank-fill');
